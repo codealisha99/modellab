@@ -1,11 +1,13 @@
 # Verification — 2026-10-09
 
+_Updated after a hardening pass; see the last section._
+
 Scope: the streaming interface (resume, heartbeats, expiry), the request guard, and the playground. Stream tokens are **simulated**; none of this verifies model quality.
 
 ## Automated checks
 
-- `pytest`: **93 passed**, **89.9% coverage** (70% gate retained). `streaming/store.py` 99%, `streaming/routes.py` 100%. Host Python 3.14.4; `pip check` clean.
-- Same suite inside `python:3.13-slim` (the production base): **93 passed**.
+- `pytest`: **139 passed**, **90% coverage** (70% gate retained). `streaming/store.py` 99%, `streaming/routes.py` 100%. Host Python 3.14.4; `pip check` clean.
+- Same suite inside `python:3.13-slim` (the production base): **139 passed** (re-run on 3.13 earlier at 93; the 46 hardening tests were added after).
 - Five consecutive runs, two of them with 8 CPU-spinning processes competing: no failures or flakes (timing tests use wide margins, e.g. heartbeat 0.1 s vs 0.25 s token gaps).
 - Dependency pins were moved to the SchemaGuard set (`fastapi 0.135.4`, `pydantic 2.12.5`, …). The previous pins did not build on Python 3.14. The 11 pre-existing tests pass unchanged. `numpy` and `redis` were dropped because nothing imports them.
 
@@ -53,3 +55,25 @@ Ten deliberate bugs were injected into `store.py` one at a time; the suite faile
 - The expiry window is fixed from completion; a client that is still reading at expiry is not cut off, but cannot resume afterwards.
 - Only desktop-ish and the preview's narrow viewport were looked at; no cross-browser pass (Safari/Firefox `EventSource` behaviour not tested).
 - The earlier inline dashboard on `/` (registry and memory JSON) was replaced by the playground because it relied on inline script, which the new CSP blocks. The same data remains at `/v1/models` and `/v1/memory/stats`, and in `/docs`.
+
+## Hardening pass
+
+An audit of the running service found real defects. Each has a regression test in `tests/test_hardening.py`; 43 of its 46 tests fail against the previous commit (the other three cover behaviour that already worked).
+
+| Found | Effect | Fix |
+| --- | --- | --- |
+| `span()` swallowed exceptions then yielded twice | training on an unknown dataset returned **500** | exceptions propagate; 404 |
+| `GET /v1/memory/eval` called `clear()` | any visitor could erase **all tenants' memory** | runs in a private tenant |
+| Semantic dedup ignored tenants | returned **another tenant's memory** on a near-duplicate | dedup per tenant |
+| Working cap, compress, stats were global | tenants evicted/exposed each other | per tenant |
+| No bounds on memory, datasets, models, checkpoint files | unbounded memory/disk growth | caps with oldest-first eviction; checkpoint cleanup (path-checked) |
+| `GET /v1/models/{id}` returned the training lookup | training data readable by id | removed from public views |
+| Unvalidated bodies (`importance: 99`, `lora_r: -1`, `top_k: -5`, non-string prompt, any tenant header) | bad state, odd errors | typed, bounded models; tenant header pattern |
+| Shutdown with a connected SSE client | hung 15 s, `CancelledError` traceback (would stall every redeploy) | `shutdown` event + immediate end |
+| Default OTLP exporter pointed at `localhost:4318` | export errors in production | export only when an endpoint is configured |
+
+Shutdown was measured on the real process and in Docker: **15 s → 0 s** locally, `docker stop` takes **1 s**, no traceback in logs, and the client receives `event: shutdown`.
+
+Browser: the new Model lab panel trained and evaluated through the real API (honest result "no: +0.0 over base", because held-out rows were never seen in training), and a stream seeded by the trained model verified (`60 tokens … SHA-256 matches`). Desktop 1280 px layout measured: two columns, no horizontal overflow.
+
+Still not covered: no authentication (datasets and models are shared across visitors, only memory is tenant-scoped); a single process; no public deployment.

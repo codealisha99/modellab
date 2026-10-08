@@ -87,6 +87,26 @@
           <p class="verdict" id="verdict" hidden></p>
         </div>
 
+        <div class="card lab-card">
+          <div class="panel-head">
+            <h2>Model lab</h2>
+            <button class="primary-sm" id="train" type="button">Train sample model</button>
+          </div>
+          <p class="lab-note">Runs the real pipeline on a 20-row sample dataset: validate, split 80/20, write 3 checkpoints, then compare base, prompt-engineered and tuned on the held-out rows. Training is a CPU mock, and the tuned model only answers rows it saw in training.</p>
+          <p class="error" id="lab-error" role="alert" hidden></p>
+          <div id="lab-result" hidden>
+            <p class="lab-answer" id="lab-answer"></p>
+            <dl class="lab-stats">
+              <div><dt>Base</dt><dd id="lab-base">—</dd></div>
+              <div><dt>Prompted</dt><dd id="lab-prompt">—</dd></div>
+              <div><dt>Tuned</dt><dd id="lab-tuned">—</dd></div>
+              <div><dt>Delta vs base</dt><dd id="lab-delta">—</dd></div>
+            </dl>
+            <p class="lab-meta"><code id="lab-model"></code> · <span id="lab-ckpt"></span></p>
+            <label class="check"><input type="checkbox" id="use-model" checked /> Use this model for the next stream</label>
+          </div>
+        </div>
+
         <div class="card log-card">
           <div class="panel-head">
             <h2>Connection log</h2>

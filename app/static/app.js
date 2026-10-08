@@ -6,6 +6,8 @@
     start: $("start"), drop: $("drop"), resume: $("resume"), cancel: $("cancel"),
     error: $("error"), state: $("state"), output: $("output"), verdict: $("verdict"),
     last: $("stat-last"), resumes: $("stat-resumes"), beats: $("stat-beats"), expiry: $("stat-expiry"),
+    train: $("train"), labError: $("lab-error"), labResult: $("lab-result"), labAnswer: $("lab-answer"), useModel: $("use-model"),
+    labBase: $("lab-base"), labPrompt: $("lab-prompt"), labTuned: $("lab-tuned"), labDelta: $("lab-delta"), labModel: $("lab-model"), labCkpt: $("lab-ckpt"),
     log: $("log"), clear: $("clear-log"), dot: $("health-dot"), healthText: $("health-text"),
   };
   const STORE_KEY = "modellab.stream";
@@ -15,6 +17,7 @@
   // only, so a reconnect can never double-append or reorder it.
   let s = null;
   let tick = null;
+  let labModelId = null;
 
   const fresh = (id) => ({
     id, es: null, lastId: 0, tokens: [], resumes: 0, beats: 0, status: "running",
@@ -136,6 +139,11 @@
       renderStats();
     });
 
+    es.addEventListener("shutdown", () => {
+      // Server is restarting. EventSource will retry by itself and send Last-Event-ID.
+      if (s === mine) log("reconnect", `server is shutting down; will resume after id ${mine.lastId}`);
+    });
+
     for (const kind of TERMINAL) {
       es.addEventListener(kind, (e) => { if (s === mine) finish(kind, Number(e.lastEventId), JSON.parse(e.data)); });
     }
@@ -211,6 +219,52 @@
     refresh();
   }
 
+  // --------------------------------------------------------------- model lab
+  const SAMPLE = [
+    ["capital of France", "Paris"], ["capital of Japan", "Tokyo"], ["capital of Italy", "Rome"], ["capital of Spain", "Madrid"],
+    ["capital of Egypt", "Cairo"], ["capital of Kenya", "Nairobi"], ["capital of Peru", "Lima"], ["capital of Norway", "Oslo"],
+    ["capital of Canada", "Ottawa"], ["capital of India", "New Delhi"], ["capital of Chile", "Santiago"], ["capital of Ghana", "Accra"],
+    ["capital of Poland", "Warsaw"], ["capital of Cuba", "Havana"], ["capital of Nepal", "Kathmandu"], ["capital of Iraq", "Baghdad"],
+    ["capital of Greece", "Athens"], ["capital of Qatar", "Doha"], ["capital of Laos", "Vientiane"], ["capital of Fiji", "Suva"],
+  ].map(([input, output]) => ({ input, output }));
+
+  const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const pct = (n) => `${Math.round(n * 100)}%`;
+  const detail = (r) => (r.body && (Array.isArray(r.body.detail) ? r.body.detail.map((d) => d.message).join("; ") : r.body.detail)) || `HTTP ${r.status}`;
+
+  async function trainSample() {
+    el.labError.hidden = true;
+    el.train.disabled = true;
+    el.train.textContent = "Training…";
+    try {
+      const ds = await post("/v1/datasets", { name: "sample-capitals", records: SAMPLE });
+      if (!ds.ok) throw new Error(`dataset: ${detail(ds)}`);
+      const tr = await post("/v1/training/run", { dataset_id: ds.body.dataset_id, lora_r: 8, lora_alpha: 16 });
+      if (!tr.ok) throw new Error(`training: ${detail(tr)}`);
+      const ev = await post(`/v1/models/${encodeURIComponent(tr.body.model_id)}/evaluate`, {});
+      if (!ev.ok) throw new Error(`evaluation: ${detail(ev)}`);
+      const model = await api(`/v1/models/${encodeURIComponent(tr.body.model_id)}`);
+      const e = ev.body;
+      labModelId = tr.body.model_id;
+      el.labAnswer.textContent = e.answer;
+      el.labAnswer.dataset.ok = String(e.justified);
+      el.labBase.textContent = pct(e.base);
+      el.labPrompt.textContent = pct(e.prompt_engineered);
+      el.labTuned.textContent = pct(e.fine_tuned);
+      el.labDelta.textContent = `${e.delta_vs_base >= 0 ? "+" : ""}${Math.round(e.delta_vs_base * 100)} pts`;
+      el.labModel.textContent = labModelId;
+      el.labCkpt.textContent = model.ok ? `${model.body.checkpoints.length} checkpoints, final loss ${model.body.checkpoints.at(-1).loss}` : "";
+      el.labResult.hidden = false;
+      log("lab", `${labModelId}: tuned ${pct(e.fine_tuned)} vs base ${pct(e.base)}`);
+    } catch (err) {
+      el.labError.hidden = false;
+      el.labError.textContent = `Could not run the pipeline: ${err.message}`;
+    } finally {
+      el.train.disabled = false;
+      el.train.textContent = "Train sample model";
+    }
+  }
+
   // ------------------------------------------------------------------- actions
   async function start() {
     showError("");
@@ -222,7 +276,10 @@
     el.start.disabled = true;
     const r = await api("/v1/streams", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, max_tokens: maxTokens, token_delay_ms: Number(el.speed.value), first_token_delay_ms: Number(el.pause.value) }),
+      body: JSON.stringify({
+        prompt, max_tokens: maxTokens, token_delay_ms: Number(el.speed.value), first_token_delay_ms: Number(el.pause.value),
+        ...(labModelId && el.useModel.checked ? { model_id: labModelId } : {}),
+      }),
     });
     el.start.disabled = false;
     if (!r.ok) {
@@ -232,7 +289,7 @@
     s = fresh(r.body.stream_id);
     sessionStorage.setItem(STORE_KEY, s.id);
     verdict(true, "");
-    log("start", `stream ${s.id.slice(0, 8)}…; ${r.body.max_tokens} simulated tokens`);
+    log("start", `stream ${s.id.slice(0, 8)}…; ${r.body.max_tokens} simulated tokens${r.body.model_id ? ` seeded by ${r.body.model_id}` : ""}`);
     connect("start");
     refresh();
   }
@@ -284,6 +341,7 @@
   el.drop.addEventListener("click", drop);
   el.resume.addEventListener("click", () => { showError(""); connect("resume"); });
   el.cancel.addEventListener("click", cancel);
+  el.train.addEventListener("click", trainSample);
   el.clear.addEventListener("click", () => el.log.replaceChildren());
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); start(); }

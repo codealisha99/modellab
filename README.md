@@ -52,7 +52,7 @@ source .venv/bin/activate
 pytest
 ```
 
-93 tests, ~90% coverage (the original 70% gate is kept). Streaming has three layers: store-level tests on an injected clock, HTTP tests, and **live-socket** tests (a real Uvicorn server, real mid-stream disconnects). See `VERIFICATION.md`.
+139 tests, ~90% coverage (the original 70% gate is kept). Streaming has three layers: store-level tests on an injected clock, HTTP tests, and **live-socket** tests (a real Uvicorn server, real mid-stream disconnects). See `VERIFICATION.md`.
 
 
 ## API
@@ -120,9 +120,20 @@ Create body: `prompt` (1–2000 chars), `max_tokens` (1–512, default 48), `tok
 - Capacity: `STREAM_MAX_STORED` streams (503 + `Retry-After` when full; expiry frees slots), `STREAM_MAX_ACTIVE` concurrently generating, `STREAM_MAX_SUBSCRIBERS` connections per stream (429).
 - Streams are in memory. A restart loses all of them; clients then see 404. Run one replica.
 
+## Validation, tenants and limits
+
+- Request bodies are validated: memory `text` 1–4000 chars, `importance` 0–1, `kind` one of working/episodic/semantic, `metadata` ≤ 2000 chars as JSON; search `q` 1–500 chars, `top_k` 1–50; `lora_r` 1–256, `lora_alpha` 1–1024, `base_model` ≤ 64 safe characters; `/v1/inference` takes only `model_id` and `prompt` (≤ 4000 chars); datasets ≤ 5000 rows. Error responses never echo submitted values.
+- `X-Tenant-Id` must be 1–64 characters of letters, digits, `_`, `.`, `-` (otherwise 400). Reads, semantic dedup, the working-memory cap (20) and `/v1/memory/compress` are all per tenant. Without the header you are tenant `default`.
+- Everything is bounded because the service is public and in-process: at most 5,000 episodic and 2,000 semantic entries (oldest dropped), 500 working entries overall, and `MAX_DATASETS` / `MAX_MODELS` (50 each, oldest evicted, evicted models' checkpoint files are deleted). Models keep their own held-out rows, so evaluation still works after their dataset is evicted.
+- `GET /v1/models/{id}` and `/v1/models` never return the training lookup or held-out rows.
+- `/v1/memory/eval` runs in a private tenant and never touches real memory.
+- `/v1/datasets/validate` and `/v1/datasets` report how many rows were dropped as incomplete.
+- Tracing exports only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; otherwise spans are no-ops (no connection attempts to localhost).
+- Shutdown: on SIGTERM, open event streams receive a `shutdown` event and end immediately, so a redeploy is not held for the graceful-shutdown timeout. `EventSource` reconnects on its own with `Last-Event-ID`.
+
 ## Playground
 
-`/` is a dependency-free page (vanilla HTML/CSS/JS, local fonts, strict CSP) over this API. **Drop connection** closes the socket mid-stream while the server keeps generating; **Resume** reconnects from the last id the page applied. It shows the last event id, resume count, heartbeats, and a live countdown to expiry, then verifies the final text against the server's checksum. Reloading the page replays the stored stream, or explains that it expired.
+`/` is a dependency-free page (vanilla HTML/CSS/JS, local fonts, strict CSP) over this API. **Drop connection** closes the socket mid-stream while the server keeps generating; **Resume** reconnects from the last id the page applied. It shows the last event id, resume count, heartbeats, and a live countdown to expiry, then verifies the final text against the server's checksum. Reloading the page replays the stored stream, or explains that it expired. The **Model lab** panel runs the real dataset → train → evaluate pipeline on a sample dataset, shows the honest base / prompted / tuned comparison, and can seed the next stream with the trained model.
 
 ## Request guard
 
@@ -140,6 +151,9 @@ No required variables or secrets.
 | `STREAM_MAX_STORED` | `256` | Stored streams (running + replayable). |
 | `STREAM_MAX_ACTIVE` | `32` | Streams generating at once. |
 | `STREAM_MAX_SUBSCRIBERS` | `8` | Connections per stream. |
+| `MAX_DATASETS` / `MAX_MODELS` | `50` / `50` | Registry caps; oldest evicted. |
+| `CHECKPOINT_DIR` | `/tmp/checkpoints` | Where checkpoint files are written. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Enables trace export. |
 | `RATE_LIMIT_PER_MINUTE` | `60` | POSTs per peer IP per rolling minute. |
 | `RATE_LIMIT_GLOBAL_PER_MINUTE` | `180` | POSTs per instance per rolling minute. |
 | `MAX_BODY_BYTES` | `262144` | Request body cap. |
