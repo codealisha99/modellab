@@ -1,0 +1,13 @@
+base_model: phi-3-mini
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  target_modules: [q_proj, v_proj]
+qlora:
+  enabled: false
+  bits: 4
+training:
+  epochs: 3
+  checkpoints: 3
+  train_split: 0.8

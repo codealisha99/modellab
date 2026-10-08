@@ -1,0 +1,9 @@
+{
+  "name": "@ai-infra/modellab",
+  "private": true,
+  "scripts": {
+    "test:unit": "pytest -q",
+    "dev": "uvicorn app.api.main:app --host 0.0.0.0 --port 8005 --reload --no-access-log",
+    "start": "python -m app.run"
+  }
+}
