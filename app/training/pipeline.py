@@ -3,10 +3,17 @@ from __future__ import annotations
 
 import os
 import random
+import re
+import shutil
+import threading
 import time
 import uuid
 from pathlib import Path
 from typing import Any
+
+MAX_DATASETS = int(os.getenv("MAX_DATASETS", "50"))
+MAX_MODELS = int(os.getenv("MAX_MODELS", "50"))
+_LOCK = threading.RLock()
 
 DATASETS: dict[str, dict[str, Any]] = {}
 MODELS: dict[str, dict[str, Any]] = {}
@@ -48,7 +55,7 @@ def ingest_dataset(name: str, records: list[dict[str, Any]]) -> str:
     shuffled = cleaned[:]
     rng.shuffle(shuffled)
     split = int(len(shuffled) * 0.8)
-    did = f"ds_{uuid.uuid4().hex[:8]}"
+    did = f"ds_{uuid.uuid4().hex[:12]}"
     DATASETS[did] = {
         "dataset_id": did,
         "name": name,
@@ -59,6 +66,9 @@ def ingest_dataset(name: str, records: list[dict[str, Any]]) -> str:
         "token_count": sum(r["tokens"] for r in cleaned),
         "created_at": time.time(),
     }
+    with _LOCK:
+        while len(DATASETS) > MAX_DATASETS:
+            DATASETS.pop(next(iter(DATASETS)))  # oldest first; models keep their own held-out rows
     return did
 
 
@@ -66,7 +76,7 @@ def train_lora(dataset_id: str, base_model: str = "phi-3-mini", lora_r: int = 8,
     if dataset_id not in DATASETS:
         raise ValueError("dataset not found")
     ds = DATASETS[dataset_id]
-    mid = f"model_{uuid.uuid4().hex[:8]}"
+    mid = f"model_{uuid.uuid4().hex[:12]}"
     ckpt_root = Path(os.getenv("CHECKPOINT_DIR", "/tmp/checkpoints")) / mid
     ckpt_root.mkdir(parents=True, exist_ok=True)
     checkpoints = []
@@ -84,11 +94,20 @@ def train_lora(dataset_id: str, base_model: str = "phi-3-mini", lora_r: int = 8,
         "qlora": use_qlora,
         "checkpoints": checkpoints,
         "lookup": lookup,
+        "val_rows": list(ds["val"] or ds["train"]),
         "status": "ready",
         "gpu": {"util": 0.0, "mem_mb": 0, "note": "stub — no cluster"},
         "created_at": time.time(),
     }
     EXPERIMENTS.append({"model_id": mid, "dataset_id": dataset_id, "base": base_model})
+    with _LOCK:
+        del EXPERIMENTS[:-MAX_MODELS]
+        while len(MODELS) > MAX_MODELS:
+            old = next(iter(MODELS))
+            MODELS.pop(old)
+            # Only ever remove the directory this module created for that id.
+            if re.fullmatch(r"model_[0-9a-f]{12}", old):
+                shutil.rmtree(Path(os.getenv("CHECKPOINT_DIR", "/tmp/checkpoints")) / old, ignore_errors=True)
     return mid
 
 
@@ -107,7 +126,7 @@ def evaluate_comparison(model_id: str) -> dict[str, Any]:
     if model_id not in MODELS:
         raise ValueError("model not found")
     m = MODELS[model_id]
-    val = DATASETS[m["dataset_id"]]["val"] or DATASETS[m["dataset_id"]]["train"]
+    val = m["val_rows"]
     lookup = m["lookup"]
 
     def base(x: str) -> str:
@@ -151,7 +170,12 @@ def infer(model_id: str, prompt: str) -> str:
 
 
 def list_models():
-    return [{k: v for k, v in m.items() if k != "lookup"} for m in MODELS.values()]
+    return [public_model(m) for m in list(MODELS.values())]
+
+
+def public_model(m: dict[str, Any]) -> dict[str, Any]:
+    """Registry view: never expose the training lookup or held-out rows."""
+    return {k: v for k, v in m.items() if k not in ("lookup", "val_rows")}
 
 
 def clear():

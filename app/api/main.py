@@ -1,16 +1,18 @@
 """ModelLab FastAPI — training pipeline + memory + resumable token streams."""
+import json
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
-from ..training.pipeline import ingest_dataset, train_lora, evaluate_comparison, list_models, validate_dataset, clean_records, clear as clear_training, DATASETS
-from ..memory.memos import add_memory, retrieve, compress_working, stats, clear as clear_mem, WORKING, EPISODIC, SEMANTIC
+from ..training.pipeline import ingest_dataset, train_lora, evaluate_comparison, list_models, public_model, infer, validate_dataset, clean_records, DATASETS, MODELS
+from ..memory.memos import add_memory, retrieve, compress_working, stats, eval_relevance, EVAL_TENANT
 from ..observability.otel import init_tracing, span, current_trace_id
 from ..streaming.routes import build_router
 from ..streaming.store import StreamSettings, StreamStore
@@ -46,16 +48,33 @@ async def request_error(request, exc):
     )
 
 @app.get("/health")
-def health(): return {"status":"ok","service":"modellab"}
+def health():
+    return {"status": "ok", "service": "modellab"}
+
+
+Tenant = Annotated[Optional[str], Header(alias="X-Tenant-Id", max_length=64)]
+TENANT_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+
+
+def tenant_of(header: Optional[str]) -> str:
+    """Tenant ids become dictionary keys and log fields: keep them boring."""
+    if header is None or header == "":
+        return "default"
+    if not TENANT_RE.fullmatch(header) or header == EVAL_TENANT:
+        raise HTTPException(400, "X-Tenant-Id must be 1-64 characters of letters, digits, '_', '.' or '-'.")
+    return header
+
 
 # ----- datasets -----
 class DatasetIngest(BaseModel):
-    name: str
-    records: List[Dict[str, Any]]
+    name: Annotated[str, Field(min_length=1, max_length=120)]
+    records: Annotated[List[Dict[str, Any]], Field(max_length=5000)]
+
 
 @app.post("/v1/datasets/validate")
 def post_validate(body: DatasetIngest):
-    return validate_dataset(clean_records(body.records))
+    cleaned = clean_records(body.records)
+    return {**validate_dataset(cleaned), "dropped": len(body.records) - len(cleaned)}
 
 
 @app.post("/v1/datasets")
@@ -64,7 +83,8 @@ def post_dataset(body: DatasetIngest):
         did = ingest_dataset(body.name, body.records)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return {"dataset_id": did, "count": len(body.records)}
+    return {"dataset_id": did, "count": len(body.records), "kept": DATASETS.get(did, {}).get("count")}
+
 
 @app.get("/v1/datasets/{dataset_id}")
 def get_dataset(dataset_id: str):
@@ -73,13 +93,15 @@ def get_dataset(dataset_id: str):
     d = DATASETS[dataset_id]
     return {"dataset_id": dataset_id, "name": d["name"], "count": d["count"], "train": len(d["train"]), "val": len(d["val"])}
 
+
 # ----- training -----
 class TrainRequest(BaseModel):
-    dataset_id: str
-    base_model: str = "phi-3-mini"
-    lora_r: int = 8
-    lora_alpha: int = 16
+    dataset_id: Annotated[str, Field(min_length=1, max_length=64)]
+    base_model: Annotated[str, Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:/-]+$")] = "phi-3-mini"
+    lora_r: Annotated[int, Field(strict=True, ge=1, le=256)] = 8
+    lora_alpha: Annotated[int, Field(strict=True, ge=1, le=1024)] = 16
     use_qlora: bool = False
+
 
 @app.post("/v1/training/run")
 def post_train(body: TrainRequest):
@@ -90,16 +112,18 @@ def post_train(body: TrainRequest):
         raise HTTPException(404, str(e))
     return {"model_id": mid, "trace_id": current_trace_id()}
 
+
 @app.get("/v1/models")
 def get_models():
     return {"models": list_models()}
 
+
 @app.get("/v1/models/{model_id}")
 def get_model(model_id: str):
-    from ..training.pipeline import MODELS
     if model_id not in MODELS:
         raise HTTPException(404, "model not found")
-    return MODELS[model_id]
+    return public_model(MODELS[model_id])
+
 
 @app.post("/v1/models/{model_id}/evaluate")
 def post_evaluate(model_id: str):
@@ -108,52 +132,74 @@ def post_evaluate(model_id: str):
     except ValueError as e:
         raise HTTPException(404, str(e))
 
-@app.post("/v1/inference")
-def inference(body: Dict[str, Any]):
-    model_id = body.get("model_id")
-    prompt = body.get("prompt","")
-    from ..training.pipeline import MODELS
-    if model_id and model_id not in MODELS:
-        raise HTTPException(404, "model not found")
-    from ..training.pipeline import infer
 
-    return {"model_id": model_id or "base", "prompt": prompt, "completion": infer(model_id, prompt) if model_id else prompt, "tokens": len(prompt)//4}
+class InferenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_id: Annotated[Optional[str], Field(max_length=64)] = None
+    prompt: Annotated[str, Field(max_length=4000)] = ""
+
+
+@app.post("/v1/inference")
+def inference(body: InferenceRequest):
+    if body.model_id and body.model_id not in MODELS:
+        raise HTTPException(404, "model not found")
+    return {
+        "model_id": body.model_id or "base",
+        "prompt": body.prompt,
+        "completion": infer(body.model_id, body.prompt) if body.model_id else body.prompt,
+        "tokens": len(body.prompt) // 4,
+    }
+
 
 # ----- memory -----
 class MemoryAdd(BaseModel):
-    text: str
-    kind: str = "episodic"
-    importance: float = 0.5
+    text: Annotated[str, Field(min_length=1, max_length=4000)]
+    kind: Literal["working", "episodic", "semantic"] = "episodic"
+    importance: Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)] = 0.5
     metadata: Optional[Dict[str, Any]] = None
 
+    @field_validator("metadata")
+    @classmethod
+    def small_metadata(cls, v):
+        if v is not None and len(json.dumps(v, default=str)) > 2000:
+            raise ValueError("metadata must be at most 2000 characters as JSON")
+        return v
+
+
 @app.post("/v1/memory")
-def post_memory(body: MemoryAdd, x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id")):
-    if body.kind not in ("working","episodic","semantic"):
-        raise HTTPException(400, "kind must be working|episodic|semantic")
-    return add_memory(body.text, body.kind, body.importance, body.metadata, tenant_id=x_tenant_id or "default")
+def post_memory(body: MemoryAdd, x_tenant_id: Tenant = None):
+    return add_memory(body.text, body.kind, body.importance, body.metadata, tenant_id=tenant_of(x_tenant_id))
+
 
 @app.get("/v1/memory/search")
-def search_memory(q: str, kind: Optional[str] = None, top_k: int = 5, x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id")):
-    return {"results": retrieve(q, kind, top_k, tenant_id=x_tenant_id or "default")}
+def search_memory(
+    q: Annotated[str, Query(min_length=1, max_length=500)],
+    kind: Optional[Literal["working", "episodic", "semantic"]] = None,
+    top_k: Annotated[int, Query(ge=1, le=50)] = 5,
+    x_tenant_id: Tenant = None,
+):
+    return {"results": retrieve(q, kind, top_k, tenant_id=tenant_of(x_tenant_id))}
+
 
 @app.get("/v1/memory/eval")
 def mem_eval():
-    from ..memory.memos import eval_relevance
-
+    # Runs in a private tenant; real memory is never touched.
     return eval_relevance(20)
 
 
 @app.get("/v1/memory/stats")
-def mem_stats(x_tenant_id: Optional[str] = Header(default=None, alias="X-Tenant-Id")):
-    return stats(x_tenant_id)
+def mem_stats(x_tenant_id: Tenant = None):
+    return stats(tenant_of(x_tenant_id))
+
 
 @app.post("/v1/memory/compress")
-def mem_compress():
-    return {"summary": compress_working()}
+def mem_compress(x_tenant_id: Tenant = None):
+    return {"summary": compress_working(tenant_of(x_tenant_id))}
+
 
 # ----- streaming -----
 def _known_model(model_id: str) -> bool:
-    from ..training.pipeline import MODELS
     return model_id in MODELS
 
 

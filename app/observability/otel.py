@@ -18,6 +18,10 @@ def init_tracing(service_name: str = "modellab", endpoint: str | None = None) ->
     if os.getenv("OTEL_SDK_DISABLED", "").lower() in {"1", "true", "yes"}:
         _initialized = True
         return
+    if not (endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")):
+        # No collector configured: do not guess localhost:4318 and spam export errors.
+        _initialized = True
+        return
     try:
         from opentelemetry import trace
         from opentelemetry.sdk.resources import Resource
@@ -29,7 +33,7 @@ def init_tracing(service_name: str = "modellab", endpoint: str | None = None) ->
         try:
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
-            url = (endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")).rstrip("/")
+            url = (endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or "").rstrip("/")
             if not url.endswith("/v1/traces"):
                 url = f"{url}/v1/traces"
             provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=url)))
@@ -43,23 +47,29 @@ def init_tracing(service_name: str = "modellab", endpoint: str | None = None) ->
 
 @contextmanager
 def span(name: str, **attrs):
+    """Trace a block. Tracing problems are ignored; exceptions from the block are not."""
     global _last_trace_id
+    cm = None
     try:
         from opentelemetry import trace
 
-        tracer = trace.get_tracer(_service)
-        with tracer.start_as_current_span(name) as current:
-            for key, value in attrs.items():
-                if value is not None:
-                    current.set_attribute(key, str(value) if not isinstance(value, (bool, int, float, str)) else value)
-            ctx = current.get_span_context()
-            _last_trace_id = format(ctx.trace_id, "032x") if ctx and ctx.trace_id else uuid.uuid4().hex
-            yield current
-            return
+        cm = trace.get_tracer(_service).start_as_current_span(name)
     except Exception:
         pass
-    _last_trace_id = uuid.uuid4().hex
-    yield None
+    if cm is None:
+        _last_trace_id = uuid.uuid4().hex
+        yield None
+        return
+    with cm as current:
+        try:
+            for key, value in attrs.items():
+                if value is not None:
+                    current.set_attribute(key, value if isinstance(value, (bool, int, float, str)) else str(value))
+            ctx = current.get_span_context()
+            _last_trace_id = format(ctx.trace_id, "032x") if ctx and ctx.trace_id else uuid.uuid4().hex
+        except Exception:
+            _last_trace_id = uuid.uuid4().hex
+        yield current
 
 
 def current_trace_id() -> str | None:

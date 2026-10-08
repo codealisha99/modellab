@@ -187,6 +187,7 @@ class StreamStore:
         self._streams: dict[str, Stream] = {}
         self._tombstones: OrderedDict[str, float] = OrderedDict()
         self._reaper: asyncio.Task | None = None
+        self.closing = False
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -194,7 +195,24 @@ class StreamStore:
         if self._reaper is None:
             self._reaper = asyncio.create_task(self._reap_forever(), name="stream-reaper")
 
+    def begin_shutdown(self) -> None:
+        """Make every open event stream end now instead of waiting for the server to time out.
+
+        Uvicorn waits for open connections *before* it runs lifespan shutdown, so this has to be
+        called when the stop signal arrives. Clients see a normal end of response; ``EventSource``
+        reconnects (to the next instance, or gets 404 because streams are in memory).
+        """
+        self.closing = True
+        for stream in list(self._streams.values()):
+            asyncio.get_running_loop().create_task(self._wake(stream))
+
+    @staticmethod
+    async def _wake(stream: "Stream") -> None:
+        async with stream.cond:
+            stream.cond.notify_all()
+
     async def close(self) -> None:
+        self.closing = True
         if self._reaper:
             self._reaper.cancel()
             await asyncio.gather(self._reaper, return_exceptions=True)
@@ -347,10 +365,13 @@ class StreamStore:
                         # Predicate is checked under the lock, so a notify between the
                         # check above and the wait below cannot be lost.
                         await asyncio.wait_for(
-                            stream.cond.wait_for(lambda: len(stream.events) > cursor),
+                            stream.cond.wait_for(lambda: len(stream.events) > cursor or self.closing),
                             timeout=self.settings.heartbeat_seconds,
                         )
                 except TimeoutError:
                     yield format_sse(event="heartbeat", data={"last_id": cursor, "status": stream.status})
+                if self.closing and len(stream.events) <= cursor:
+                    yield format_sse(event="shutdown", data={"last_id": cursor, "retry_ms": self.settings.retry_ms})
+                    return
         finally:
             stream.subscribers -= 1
