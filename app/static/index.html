@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="A resumable streaming playground. Drop the connection, resume exactly where you left off, watch heartbeats, and see stored streams expire. Tokens are simulated." />
+    <meta name="theme-color" content="#ffffff" />
+    <title>ModelLab · Streaming playground</title>
+    <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
+    <link rel="preload" href="/static/fonts/manrope.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <header class="nav">
+      <a class="brand" href="/" aria-label="ModelLab home">
+        <svg class="brand-mark" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+          <rect width="36" height="36" rx="10" fill="currentColor" />
+          <path d="M10 24V12l8 8 8-8v12" stroke="white" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        ModelLab
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#playground">Playground</a>
+        <a href="/docs">API docs</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <span class="intro-pill"><span class="signal" id="health-dot"></span><span id="health-text">Checking service…</span></span>
+        <h1><span>Streams that survive</span> <span>a dropped connection.</span></h1>
+        <p>Reconnect with <code>Last-Event-ID</code> and get exactly the events you missed. Heartbeats keep idle links alive. Stored streams expire on schedule.</p>
+        <p class="honest"><strong>Tokens are simulated.</strong> Deterministic words derived from your prompt. No model is called.</p>
+      </section>
+
+      <section class="playground" id="playground" aria-label="Streaming playground">
+        <div class="card controls">
+          <label for="prompt">Prompt</label>
+          <textarea id="prompt" rows="3" maxlength="2000" spellcheck="false">Explain why resumable streams need stable event ids.</textarea>
+          <div class="row">
+            <div class="field">
+              <label for="max-tokens">Tokens</label>
+              <input id="max-tokens" type="number" min="1" max="512" value="60" inputmode="numeric" />
+            </div>
+            <div class="field">
+              <label for="speed">Speed</label>
+              <select id="speed">
+                <option value="20">Fast · 20 ms</option>
+                <option value="60" selected>Steady · 60 ms</option>
+                <option value="150">Slow · 150 ms</option>
+                <option value="250">Idle gaps · 250 ms</option>
+              </select>
+            </div>
+          </div>
+          <div class="field pause">
+            <label for="pause">Thinking pause before first token</label>
+            <select id="pause">
+              <option value="0" selected>None</option>
+              <option value="5000">5 s</option>
+              <option value="15000">15 s (shows a heartbeat)</option>
+              <option value="30000">30 s</option>
+            </select>
+          </div>
+          <div class="actions">
+            <button class="primary" id="start" type="button">Start stream <span aria-hidden="true">→</span></button>
+            <button id="drop" type="button" disabled>Drop connection</button>
+            <button id="resume" type="button" disabled>Resume</button>
+            <button id="cancel" type="button" disabled>Cancel</button>
+          </div>
+          <p class="hint">Drop closes the socket mid-stream; the server keeps generating. Resume reconnects from the last id you saw. <kbd>⌘</kbd><kbd>↵</kbd> starts.</p>
+          <p class="error" id="error" role="alert" hidden></p>
+        </div>
+
+        <div class="card output-card">
+          <div class="panel-head">
+            <h2>Output</h2>
+            <span class="status" id="state" data-state="idle" role="status">Idle</span>
+          </div>
+          <pre class="output" id="output" aria-live="polite" tabindex="0"><span class="placeholder">Start a stream to see tokens arrive.</span></pre>
+          <dl class="stats">
+            <div><dt>Last event id</dt><dd id="stat-last">0</dd></div>
+            <div><dt>Resumes</dt><dd id="stat-resumes">0</dd></div>
+            <div><dt>Heartbeats</dt><dd id="stat-beats">0</dd></div>
+            <div><dt>Replay expires</dt><dd id="stat-expiry">—</dd></div>
+          </dl>
+          <p class="verdict" id="verdict" hidden></p>
+        </div>
+
+        <div class="card log-card">
+          <div class="panel-head">
+            <h2>Connection log</h2>
+            <button class="quiet" id="clear-log" type="button">Clear</button>
+          </div>
+          <ol class="log" id="log" aria-label="Connection log"></ol>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Single-process demo: streams live in memory and are lost on restart. See <a href="/docs">/docs</a> for the HTTP API.</p>
+    </footer>
+  </body>
+</html>
