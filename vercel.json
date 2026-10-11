@@ -1,0 +1,23 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "",
+  "buildCommand": "python3 scripts/build_frontend.py",
+  "outputDirectory": "public",
+  "rewrites": [
+    {"source": "/v1/:path*", "destination": "https://api-production-b980.up.railway.app/v1/:path*"},
+    {"source": "/health", "destination": "https://api-production-b980.up.railway.app/health"},
+    {"source": "/docs", "destination": "https://api-production-b980.up.railway.app/docs"},
+    {"source": "/openapi.json", "destination": "https://api-production-b980.up.railway.app/openapi.json"}
+  ],
+  "headers": [
+    {"source": "/(.*)", "headers": [
+      {"key": "X-Content-Type-Options", "value": "nosniff"},
+      {"key": "Referrer-Policy", "value": "no-referrer"},
+      {"key": "X-Frame-Options", "value": "DENY"}
+    ]},
+    {"source": "/", "headers": [
+      {"key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"}
+    ]}
+  ]
+}

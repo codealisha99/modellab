@@ -52,7 +52,7 @@ source .venv/bin/activate
 pytest
 ```
 
-139 tests, ~90% coverage (the original 70% gate is kept). Streaming has three layers: store-level tests on an injected clock, HTTP tests, and **live-socket** tests (a real Uvicorn server, real mid-stream disconnects). See `VERIFICATION.md`.
+142 tests, ~90% coverage (the original 70% gate is kept). Streaming has three layers: store-level tests on an injected clock, HTTP tests, and **live-socket** tests (a real Uvicorn server, real mid-stream disconnects). See `VERIFICATION.md`.
 
 
 ## API
@@ -141,10 +141,12 @@ Pure ASGI middleware (it never buffers SSE): POST bodies are capped (default 256
 
 ## Environment variables
 
-No required variables or secrets.
+Local development requires no secrets. Production uses Neon via `DATABASE_URL` and `DATABASE_URL_UNPOOLED` (stored only in Railway variables).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `DATABASE_URL` | unset | Neon pooled URL for durable datasets, models, and memory. |
+| `DATABASE_URL_UNPOOLED` | unset | Direct Neon URL for idempotent startup schema initialization. |
 | `PORT` | `8005` | HTTP port; Railway injects this. |
 | `STREAM_TTL_SECONDS` | `300` | How long a finished stream stays replayable. |
 | `STREAM_HEARTBEAT_SECONDS` | `10` | Idle time before a heartbeat. |
@@ -160,16 +162,31 @@ No required variables or secrets.
 | `TRUSTED_PROXY_IPS` | `127.0.0.1` | Proxies whose forwarded headers Uvicorn trusts. Never `*` on a public service. |
 | `OTEL_SDK_DISABLED` | unset | Set `true` to disable tracing export. |
 
-## Railway deployment from the monorepo
+## Production deployment
 
-1. Publish the monorepo to GitHub (this workspace has no `.git`; do not push unrelated projects just to deploy this one).
-2. Create a Railway service from the repo. In **Settings → Source**, set **Root Directory** to `/05-modellab` and **Railway Config File** to `/05-modellab/railway.json` (the path is relative to the repo root).
-3. Keep **one replica**: streams and rate limits are per process.
-4. Deploy, confirm `/health` passes, then **Generate Domain**. Railway proxies are not in `TRUSTED_PROXY_IPS` by default, so visitors share one per-IP allowance until you configure it with verified proxy addresses.
-5. Verify: `curl --fail https://<domain>/health`, then create a stream and resume it with `Last-Event-ID`. Idle-timeout behaviour of the proxy is the reason heartbeats exist; keep `STREAM_HEARTBEAT_SECONDS` below it.
+- Frontend: https://modellab-nine.vercel.app
+- Railway API: https://api-production-b980.up.railway.app
+- API docs: https://modellab-nine.vercel.app/docs
+- GitHub: https://github.com/codealisha99/modellab
+- Neon project: `modellab` (`fancy-leaf-15190823`), main branch, Singapore.
 
-No deployment has been performed from this workspace.
+GitHub `main` is connected to both Railway and Vercel. Railway builds the root Dockerfile; Vercel packages the existing static playground using `scripts/build_frontend.py`. `vercel.json` proxies `/v1/*`, `/health`, and API documentation to Railway, keeping browser requests on the same origin. Database credentials belong only in Railway, never in Vercel or GitHub.
+
+Keep exactly one Railway replica and one Uvicorn worker. Datasets, models, evaluation scores, and memory are committed to bounded JSONB snapshots in Neon; startup restores them and regenerates CPU mock checkpoint files on ephemeral disk. Failed database writes roll back the in-memory mutation. `/health` verifies database connectivity. Streams and rate limits remain transient and are lost on restart. This snapshot design is intended for this small demo, not multiple writers or a distributed deployment.
+
+To deploy manually after testing:
+
+```bash
+pytest
+# Publish the deployment changes to the connected main branch.
+git push origin main
+# Or deploy the current checkout directly:
+railway up --service api --detach
+vercel deploy --prod --yes
+```
+
+Use `railway deployment list --service api` and `vercel inspect <deployment-url>` to check rollout status. Smoke-test `/health`, train a sample model, and verify stream delivery and resume through the Vercel URL.
 
 ## Honesty
 
-Stream tokens are simulated, not model output. Training is a deterministic CPU mock, not PEFT on a GPU. Tuned accuracy only hits items seen in train — the eval says so. Memory is in-process and tenant-scoped, not yet pgvector. Streams are in-process too: a restart loses them.
+Stream tokens are simulated, not model output. Training is a deterministic CPU mock, not PEFT on a GPU. Tuned accuracy only hits items seen in train — the eval says so. Memory is tenant-scoped with deterministic hash embeddings, not pgvector. With `DATABASE_URL`, datasets, models, and memory persist in Neon; without it, they remain in-process. Streams are in-process too: a restart loses them.

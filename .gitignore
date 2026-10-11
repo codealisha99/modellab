@@ -8,3 +8,6 @@ htmlcov/
 .env.*
 !.env.example
 .railway/
+.vercel/
+public/
+.vercel

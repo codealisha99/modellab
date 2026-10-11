@@ -10,6 +10,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+from .. import persistence
 
 MAX_DATASETS = int(os.getenv("MAX_DATASETS", "50"))
 MAX_MODELS = int(os.getenv("MAX_MODELS", "50"))
@@ -18,6 +19,35 @@ _LOCK = threading.RLock()
 DATASETS: dict[str, dict[str, Any]] = {}
 MODELS: dict[str, dict[str, Any]] = {}
 EXPERIMENTS: list[dict[str, Any]] = []
+
+
+_durable = persistence.durable(_LOCK, "training", {
+    "datasets": DATASETS, "models": MODELS, "experiments": EXPERIMENTS,
+})
+
+
+def restore():
+    state = persistence.load("training")
+    if state is None:
+        return
+    with _LOCK:
+        DATASETS.clear()
+        # JSONB objects do not preserve insertion order; keep oldest-first eviction.
+        DATASETS.update(sorted(state["datasets"].items(), key=lambda item: item[1]["created_at"]))
+        MODELS.clear()
+        MODELS.update(sorted(state["models"].items(), key=lambda item: item[1]["created_at"]))
+        EXPERIMENTS[:] = state["experiments"]
+        # CPU mock checkpoints are reproducible; recreate on ephemeral Railway disk.
+        for mid, model in MODELS.items():
+            if not re.fullmatch(r"model_[0-9a-f]{12}", mid):
+                raise ValueError("invalid persisted model id")
+            root = Path(os.getenv("CHECKPOINT_DIR", "/tmp/checkpoints")) / mid
+            root.mkdir(parents=True, exist_ok=True)
+            for checkpoint in model["checkpoints"]:
+                step = int(checkpoint["step"])
+                path = root / f"step-{step}.pt"
+                path.write_bytes(f"lora r={model['lora_r']} alpha={model['lora_alpha']} qlora={model['qlora']} step={step} model={mid}\n".encode())
+                checkpoint.update(path=str(path), bytes=path.stat().st_size)
 
 
 def _tokens(text: str) -> int:
@@ -46,6 +76,7 @@ def clean_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+@_durable
 def ingest_dataset(name: str, records: list[dict[str, Any]]) -> str:
     cleaned = clean_records(records)
     v = validate_dataset(cleaned)
@@ -72,6 +103,7 @@ def ingest_dataset(name: str, records: list[dict[str, Any]]) -> str:
     return did
 
 
+@_durable
 def train_lora(dataset_id: str, base_model: str = "phi-3-mini", lora_r: int = 8, lora_alpha: int = 16, use_qlora: bool = False) -> str:
     if dataset_id not in DATASETS:
         raise ValueError("dataset not found")
@@ -122,6 +154,7 @@ def _accuracy(predict, rows: list[dict]) -> float:
     return round(hits / len(rows), 3)
 
 
+@_durable
 def evaluate_comparison(model_id: str) -> dict[str, Any]:
     if model_id not in MODELS:
         raise ValueError("model not found")
@@ -146,7 +179,8 @@ def evaluate_comparison(model_id: str) -> dict[str, Any]:
     steps = len(m["checkpoints"])
     cost_estimate = f"${0.04 * steps:.2f} (cpu mock, {steps} checkpoints)"
     justified = delta_vs_base > 0.05
-    m["eval_score"] = tuned_score
+    with _LOCK:
+        m["eval_score"] = tuned_score
     return {
         "base": base_score,
         "prompt_engineered": prompt_score,

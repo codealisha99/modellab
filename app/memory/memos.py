@@ -10,6 +10,7 @@ import threading
 import time
 import uuid
 from typing import Any, Dict, List, Optional
+from .. import persistence
 
 # In-memory stores
 WORKING: List[Dict[str, Any]] = []
@@ -23,6 +24,28 @@ SEMANTIC_TOTAL = 2000
 EVAL_TENANT = "__eval__"
 
 _LOCK = threading.RLock()
+
+
+def _payload():
+    return {
+        kind: [m for m in pool if m["tenant_id"] != EVAL_TENANT]
+        for kind, pool in (("working", WORKING), ("episodic", EPISODIC), ("semantic", SEMANTIC))
+    }
+
+
+_durable = persistence.durable(
+    _LOCK, "memory", {"working": WORKING, "episodic": EPISODIC, "semantic": SEMANTIC},
+    payload=_payload, skip=lambda *args, **kwargs: kwargs.get("tenant_id") == EVAL_TENANT,
+)
+
+
+def restore():
+    state = persistence.load("memory")
+    if state is not None:
+        with _LOCK:
+            WORKING[:] = state["working"]
+            EPISODIC[:] = state["episodic"]
+            SEMANTIC[:] = state["semantic"]
 
 
 def _hash_vec(text: str, dim: int = 64):
@@ -46,6 +69,7 @@ def _trim_oldest(pool: List[Dict[str, Any]], cap: int) -> None:
         del pool[: len(pool) - cap]
 
 
+@_durable
 def add_memory(text: str, kind: str = "episodic", importance: float = 0.5, metadata: Optional[Dict] = None, tenant_id: str = "default") -> Dict[str, Any]:
     mid = f"mem_{uuid.uuid4().hex[:8]}"
     entry = {
@@ -108,6 +132,7 @@ def compress_working(tenant_id: str = "default") -> str:
     return " | ".join(" ".join(w["text"].split()[:12]) for w in mine[-5:])
 
 
+@_durable
 def evict_expired(ttl_hours: float = 24 * 7):
     now = time.time()
     with _LOCK:

@@ -3,6 +3,7 @@ import json
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
+from starlette.concurrency import run_in_threadpool
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
@@ -17,6 +18,9 @@ from ..observability.otel import init_tracing, span, current_trace_id
 from ..streaming.routes import build_router
 from ..streaming.store import StreamSettings, StreamStore
 from .guard import GuardMiddleware
+from .. import persistence
+from ..training import pipeline
+from ..memory import memos
 
 init_tracing("modellab")
 streams = StreamStore(StreamSettings.from_env())
@@ -24,6 +28,9 @@ streams = StreamStore(StreamSettings.from_env())
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    await run_in_threadpool(persistence.initialize)
+    await run_in_threadpool(pipeline.restore)
+    await run_in_threadpool(memos.restore)
     await streams.start()  # background reaper for expired streams
     try:
         yield
@@ -49,6 +56,10 @@ async def request_error(request, exc):
 
 @app.get("/health")
 def health():
+    try:
+        persistence.healthy()
+    except Exception:
+        return JSONResponse({"status": "unavailable", "service": "modellab"}, 503)
     return {"status": "ok", "service": "modellab"}
 
 
