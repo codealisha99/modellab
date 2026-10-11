@@ -1,4 +1,4 @@
-"""TuneLab — clean/split/tokenize, deterministic LoRA-style run, honest comparison."""
+"""ModelLab training — clean/split/tokenize, deterministic LoRA-style run, honest comparison."""
 from __future__ import annotations
 
 import os

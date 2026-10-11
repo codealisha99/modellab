@@ -1,4 +1,4 @@
-"""MemOS — working/episodic/semantic memory with scoring, compression, eviction.
+"""ModelLab memory — working/episodic/semantic memory with scoring, compression, eviction.
 
 Everything is tenant-scoped (reads, dedup, caps, compression) and bounded, because the
 service is public and in-process. All access goes through ``_LOCK``: FastAPI runs the sync

@@ -1,9 +1,19 @@
 {
-  "name": "@ai-infra/modellab",
+  "name": "modellab",
   "private": true,
   "scripts": {
     "test:unit": "pytest -q",
     "dev": "uvicorn app.api.main:app --host 0.0.0.0 --port 8005 --reload --no-access-log",
-    "start": "python -m app.run"
+    "start": "python -m app.run",
+    "build": "python3 scripts/build_frontend.py"
+  },
+  "description": "A developer lab for simulated training, scored memory, and resumable streams",
+  "author": {
+    "name": "Alisha Karma",
+    "url": "https://alishakarma.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codealisha99/modellab.git"
   }
 }

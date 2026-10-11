@@ -68,3 +68,23 @@ def test_static_build_matches_served_pages_and_copies_assets():
     assert (root / "public/index.html").read_text() == render_page("landing")
     assert (root / "public/playground.html").read_text() == render_page("workspace")
     assert (root / "public/static/app.js").read_bytes() == (root / "app/static/app.js").read_bytes()
+
+
+def test_browser_404_preserves_json_api_errors():
+    with TestClient(app) as client:
+        browser = client.get("/missing-page", headers={"Accept": "text/html"})
+        assert browser.status_code == 404
+        assert "This page isn’t in the lab." in browser.text
+        assert 'href="/playground"' in browser.text
+        assert "text/html" in browser.headers["content-type"]
+        for path in ("/missing-page", "/v1/missing", "/static/missing.css"):
+            headers = {} if path == "/missing-page" else {"Accept": "text/html"}
+            response = client.get(path, headers=headers)
+            assert response.status_code == 404
+            assert response.json() == {"detail": "Not Found"}
+
+
+def test_404_static_output_uses_shared_shell():
+    root = Path(__file__).resolve().parents[1]
+    subprocess.run([sys.executable, "scripts/build_frontend.py"], cwd=root, check=True)
+    assert (root / "public/404.html").read_text() == render_page("not-found")

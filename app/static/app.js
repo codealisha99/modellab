@@ -103,7 +103,7 @@
 
   async function api(path, options) {
     try {
-      const r = await fetch(path, options);
+      const r = await fetch(path, { ...options, signal: AbortSignal.timeout(15000) });
       let body = null;
       try { body = await r.json(); } catch { /* 204 or non-JSON */ }
       return { status: r.status, ok: r.ok, body };
@@ -388,7 +388,7 @@
     field.addEventListener("input", () => field.removeAttribute("aria-invalid"));
   }
   document.addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); start(); }
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && el.form.contains(document.activeElement)) { e.preventDefault(); start(); }
   });
   window.addEventListener("pagehide", disconnect);
   window.addEventListener("pageshow", (e) => {

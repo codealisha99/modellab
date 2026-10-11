@@ -4,6 +4,7 @@ import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
@@ -43,12 +44,21 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="ModelLab",
     version="1.1.0",
-    description="Training (LoRA/QLoRA) + Memory (working/episodic/semantic) + resumable SSE streams. Stream tokens are simulated.",
+    description="Deterministic CPU mock training, scored three-tier memory, and resumable SSE streams. Training and tokens are simulated. Tenant IDs are namespaces, not authentication.",
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
 )
 app.add_middleware(GuardMiddleware)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_error(request, exc):
+    if (exc.status_code == 404 and request.method == "GET"
+            and "text/html" in request.headers.get("accept", "")
+            and not request.url.path.startswith(("/v1/", "/static/"))):
+        return HTMLResponse(render_page("not-found"), status_code=404)
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers)
 
 
 @app.exception_handler(RequestValidationError)
@@ -246,11 +256,12 @@ def _documentation_page(page, response):
         body += '<script src="/static/reference.js"></script>'
     css = '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1/swagger-ui.css" />' if page == "docs" else ""
     alternative = '<a href="/redoc">Read the API reference</a>' if page == "docs" else '<a href="/docs">Open interactive docs</a>'
+    guide = '<aside class="docs-guide" aria-label="Before you send a request"><strong>Before you send a request</strong><p>Try GET /health first. POST requests change this demo’s stores; use sample data. Training runs on a CPU mock and streamed tokens are simulated.</p><p>Memory uses X-Tenant-Id to separate notes. This header is not an access credential. Without a database, datasets, models, and memory reset when the service restarts.</p></aside>'
     intro = f'''<section class="docs-intro"><h1>{"Interactive API docs" if page == "docs" else "API reference"}</h1>
         <p>Explore the real endpoints for datasets, model experiments, memory, and streams. Training and token generation are simulated.</p>
         <div class="docs-links">{alternative}<a href="/openapi.json">OpenAPI schema</a></div></section>
         <noscript><p class="error">Enable JavaScript to browse the API documentation, or download the <a href="/openapi.json">OpenAPI schema</a>.</p></noscript>'''
-    return HTMLResponse(render_page(page, content=intro + f'<section id="api-reference" class="api-reference" aria-label="API reference" tabindex="-1">{body}</section>', extra_head=css))
+    return HTMLResponse(render_page(page, content=intro + guide + f'<section id="api-reference" class="api-reference" aria-label="API reference" tabindex="-1">{body}</section>', extra_head=css))
 
 
 @app.get("/docs", include_in_schema=False)

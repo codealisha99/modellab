@@ -24,7 +24,7 @@ DOCS_CSP = (
     b"default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
     b"style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
     b"img-src 'self' data: https://fastapi.tiangolo.com https://cdn.redoc.ly; "
-    b"connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'none'; base-uri 'none'"
+    b"worker-src 'self' blob:; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'none'; base-uri 'none'"
 )
 
 
@@ -80,44 +80,6 @@ class GuardMiddleware:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
 
-        if scope["method"] == "POST":
-            key = (scope.get("client") or ("unknown",))[0]
-            if self._limited(key):
-                return await JSONResponse(
-                    {"detail": "Request limit reached. Try again in 60 seconds."}, 429, headers={"Retry-After": "60"}
-                )(scope, receive, send)
-            chunks, size = [], 0
-            while True:
-                try:
-                    message = await asyncio.wait_for(receive(), timeout=self.body_timeout)
-                except TimeoutError:
-                    return await JSONResponse({"detail": "Request body timed out."}, 408)(scope, receive, send)
-                if message["type"] == "http.disconnect":
-                    return
-                body = message.get("body", b"")
-                size += len(body)
-                if size > self.max_body:
-                    return await JSONResponse({"detail": f"Request body exceeds {self.max_body // 1024} KiB."}, 413)(scope, receive, send)
-                chunks.append(body)
-                if not message.get("more_body"):
-                    break
-            payload = b"".join(chunks)
-            try:
-                check_depth(payload.decode("utf-8"))
-            except (ValueError, UnicodeError):
-                return await JSONResponse({"detail": "Request nesting exceeds 32 levels or encoding is invalid."}, 422)(scope, receive, send)
-
-            original_receive, replayed = receive, False
-
-            async def replay_body():
-                nonlocal replayed
-                if not replayed:
-                    replayed = True
-                    return {"type": "http.request", "body": payload, "more_body": False}
-                return await original_receive()  # later calls wait for the real disconnect
-
-            receive = replay_body
-
         async def secure_send(message):
             if message["type"] == "http.response.start":
                 csp = DOCS_CSP if scope["path"].startswith(("/docs", "/redoc")) else CSP
@@ -129,5 +91,43 @@ class GuardMiddleware:
                     extra.append((b"cache-control", b"no-store"))
                 message["headers"] = headers + [h for h in extra if h[0] not in names]
             await send(message)
+
+        if scope["method"] == "POST":
+            key = (scope.get("client") or ("unknown",))[0]
+            if self._limited(key):
+                return await JSONResponse(
+                    {"detail": "Request limit reached. Try again in 60 seconds."}, 429, headers={"Retry-After": "60"}
+                )(scope, receive, secure_send)
+            chunks, size = [], 0
+            while True:
+                try:
+                    message = await asyncio.wait_for(receive(), timeout=self.body_timeout)
+                except TimeoutError:
+                    return await JSONResponse({"detail": "Request body timed out."}, 408)(scope, receive, secure_send)
+                if message["type"] == "http.disconnect":
+                    return
+                body = message.get("body", b"")
+                size += len(body)
+                if size > self.max_body:
+                    return await JSONResponse({"detail": f"Request body exceeds {self.max_body // 1024} KiB."}, 413)(scope, receive, secure_send)
+                chunks.append(body)
+                if not message.get("more_body"):
+                    break
+            payload = b"".join(chunks)
+            try:
+                check_depth(payload.decode("utf-8"))
+            except (ValueError, UnicodeError):
+                return await JSONResponse({"detail": "Request nesting exceeds 32 levels or encoding is invalid."}, 422)(scope, receive, secure_send)
+
+            original_receive, replayed = receive, False
+
+            async def replay_body():
+                nonlocal replayed
+                if not replayed:
+                    replayed = True
+                    return {"type": "http.request", "body": payload, "more_body": False}
+                return await original_receive()  # later calls wait for the real disconnect
+
+            receive = replay_body
 
         await self.app(scope, receive, secure_send)

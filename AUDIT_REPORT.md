@@ -1,56 +1,76 @@
-# ModelLab redesign and production audit
+# ModelLab product, ownership, and production audit
 
-Date: 2026-10-11. The redesign was verified locally before release. The user subsequently authorized committing, pushing, production deployment, and updating the Vercel CLI.
+Date: 2026-10-11. Status: completed locally with verification limits. The implementation audit performed no commit, push, manual deployment, remote URL change, permission change, Git identity change, or production data mutation. The user subsequently authorized committing and pushing these changes; the configured main-branch integrations may deploy that push. The previous report is preserved in [the historical audit](docs/audits/previous-redesign.md); its release authorization does not apply to this session.
 
-## A. Product and branding
+## A. Verified product identity and discovery
 
-ModelLab remains a developer lab for CPU mock training, tenant memory, and resumable simulated streams. The redesign uses a restrained light developer workspace with blue actions and navy output panels. Creator attribution links to Alisha Karma's website, GitHub, and X in the footer; personal contact details are not presented as product support.
+ModelLab is a developer lab for deterministic CPU mock training, scored three-tier memory, and verifiable resumable simulated streams. Its users are developers exploring dataset/train/evaluate behavior, memory retrieval, and SSE replay. It is not a GPU training or authenticated private-memory service. The design direction is a restrained technical laboratory: muted teal actions, slate surfaces, dark output instruments, and an explanatory event-replay diagram.
 
-Local Manrope and JetBrains Mono fonts remain in use. Colors, type, spacing, state colors, corner radii, control sizing, focus, and motion are centralized in `tokens.css`. See `DESIGN_SYSTEM.md` for the complete palette and principal contrast measurements.
+Creator and intended primary maintainer: Alisha Karma, `codealisha99`. Website, GitHub, X, and contact match the supplied identity. Attribution describes the product’s creator and maintainer, not sole authorship of every line.
 
-## B. Routes and components
+Inspected all tracked source, templates, styles, frontend scripts, API routes, training/memory/stream stores, optional PostgreSQL snapshot persistence, guards, tracing, dependencies, tests, Docker/Railway/Vercel configuration, fonts, notices, package metadata, README, PRD, and prior verification documents. Stack: Python/FastAPI/Pydantic/Uvicorn, vanilla HTML/CSS/JS, pytest; npm is a command wrapper, not a JS dependency tree. Four existing user-facing routes; no auth, account, billing, dashboard, legal, or CRUD page set. `/docs/oauth2-redirect` is a vendor callback helper, not a product page.
 
-Audited `/`, `/playground`, `/docs`, `/redoc`, plus `/docs/oauth2-redirect`, `/openapi.json`, `/health`, and linked static assets. There are no login, signup, dashboard, settings, legal, or other application pages in this repository.
+Started from a clean `main` at `578a2d5`; origin already points to `https://github.com/codealisha99/modellab.git`. Read-only `gh repo view` confirmed a public repository with empty description/topics. No repository-level CI, lint, or static-type configuration exists. The Git identity was inspected and left unchanged; an existing email is not assumed verified.
 
-Shared templates provide consistent navigation, active routes, skip links, titles, footer, and creator attribution. The landing page retains its working playground; the dedicated workspace focuses on controls and output. Health is visible on both routes. Documentation now shares the product shell and fonts, with valid Vercel rewrites for the reference and OAuth helper.
+## B. Design system
 
-Improved labels and helper text, invalid-field focus, button busy states, service failure recovery, storage restrictions, restore races, checksum fallback messaging, result focus, restrained announcements, and event-log empty states. All app controls have 44 px minimum height; responsive layouts stack panels and wrap long event text. Reduced-motion preferences are honored. Swagger summary links are separated from disclosure buttons; code samples retain readable dark backgrounds.
+Central tokens in `app/static/tokens.css`: brand `#087C75`, hover `#086760`, active `#06534D`, selected `#E1F2EF`; page `#F2F6F5`, surface `#FFFFFF`, muted `#EAF0EF`; text `#1C3034`, secondary `#4A6266`, muted `#586E72`; borders `#D6E2DF` / `#7B9290`; success `#176B53`, warning `#85530B`, error `#A32928`, info/secondary `#345BA4`; terminal `#183237` with text `#E0EEEC`. Focus, disabled, state backgrounds, motion, and radii remain centralized.
 
-## C. Cleanup and architecture
+Locally hosted Manrope for UI and JetBrains Mono for code, both with swap/fallback loading. Type: 12/14/16/18/24 px; page headings 28–36 px, display 34–56 px. Spacing: 4/8/12/16/20/24/32/40/48/64 px; 1200 px content, fluid gutters, 24 px grid gap, 44 px controls, 8 px control/12 px panel corners, 140 ms transitions. Reduced motion is preserved. Reference content can expand to 1472 px for its three-column renderer.
 
-Replaced duplicated HTML string substitutions with one stdlib template renderer used by FastAPI and the static build. Moved page markup from `app/static/index.html` to `app/templates/playground.html`. Consolidated duplicate and conflicting CSS and centralized semantic tokens. Removed unused timer bookkeeping and decorative separator comments from the frontend; retained comments explaining stream deduplication, replay, storage restrictions, cryptography fallback, and the Swagger accessibility adaptation. Backend validation, security, persistence, tracing, and licensing documentation remain intact.
+Shared header, four-item active navigation, visible two-column mobile navigation, footer, metadata, favicon, panels, forms, buttons, alerts, output, statistics, and empty/loading/error states updated. Added memory results, documentation request guidance, and a shared-shell HTML 404. Principal contrast pairs were calculated: white/brand 5.06:1; brand/page 4.64:1; primary text/white 13.80:1; muted/page 4.96:1; terminal text 11.36:1; input border/white 3.30:1. See [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md).
 
-No framework, schema, business logic, API payload, authentication, or persistence integration was replaced. No package dependencies were added. Existing documentation CDN versions are now pinned. The documentation-only CSP allows ReDoc's attribution image and Swagger asset preloads; application pages retain the strict self-only policy.
+## C. Route inventory and completion
 
-## D. Verification
+All four existing routes were inspected before implementation. Problems and changes: overview copy overstated persistence; workspace did not expose memory; docs lacked practical request guidance; reference shared the docs active link; unknown URLs exposed JSON to browsers. Common changes apply the new system to each route.
 
-Executed:
+| Route | Purpose | Design updated | Functionality tested | Responsive check | Status |
+|---|---|---|---|---|---|
+| `/` | Overview and embedded experiments | Yes: copy, replay visual, shared system, memory | Navigation, keyboard skip, real six-token stream, shared forms | 320/390/768/1024/1440/1600 px | Verified locally |
+| `/playground` | Stream, model, and memory workspace | Yes: anchor navigation, panels, memory controls | Replay/checksum, cancellation, training, save/search, filtering, errors | Same six widths | Verified locally |
+| `/docs` | Interactive Swagger API documentation | Yes: guidance, controls, samples, shell | Expand, Try it out, actual `/health` 200, permalink | Same six widths; executed state at 390/1440 | Verified locally |
+| `/redoc` | Read-only API reference | Yes: guidance, active route, theme/constraint contrast | Schema rendering, memory search, and navigation | Same six widths | Verified locally |
+| Unmatched page URL; tested `/unknown-page` | 404 recovery state | Added shared shell | 404 HTTP status, recovery links; API errors stay JSON | Same six widths | Verified locally |
 
-- `.venv/bin/python -m pytest -q`: **150 passed**, **90.10% coverage**, above the unchanged 70% gate. Includes existing streaming, hardening, persistence, training, and memory tests and eight new public-page/packaging regressions.
-- `node --check` for `app.js`, `docs.js`, and `reference.js`: passed.
+Every listed route progressed through inspection, implementation, functional checks, responsive checks, and local verification. No route requires authentication. Model and memory mutations used local sample data only. API routes, `/health`, `/openapi.json`, and the OAuth callback were checked separately and are not counted as product pages.
+
+New memory controls call the existing save and ranked-search endpoints. Each tab starts with a random tenant namespace; storage restriction is tolerated. Copy explains namespace IDs do not authenticate users. Validated real save/search, empty tier, separation between tenants, safe literal rendering of HTML-like text, failure recovery, and dropping stale responses after tenant changes. No schema, persistence mechanism, API payload, or backend business workflow was replaced.
+
+## D. Ownership and originality
+
+Corrected the private npm name from the unrelated `@ai-infra` namespace to `modellab`; added creator/repository metadata. Updated footer, author/social metadata, README, maintainer documentation, and `.github/CODEOWNERS` to the canonical identity. Added a secret-free `.env.example` that explicitly does not promise automatic dotenv loading. Module descriptions now say ModelLab; README preserves the original TuneLab/MemOS requirement lineage. No fake metrics, customers, testimonials, new legal pages, or ownership history were introduced.
+
+Manrope/JetBrains Mono SIL notices, Swagger/ReDoc branding, intentional service URLs, and historical commits remain. Renderer license types were verified from pinned package metadata. Current production availability, connected account configuration, database credentials, and GitHub email verification were not inferred from older documents. Remote description/topics remain empty and unchanged.
+
+## E. Code quality and security
+
+Important changes: shared renderer/templates, semantic tokens/styles, `memory.js`, docs/reference scripts, request guard, HTML 404 handler, package/static build, frontend/hardening tests, and ownership/docs. Added three meaningful regressions: browser/API 404 negotiation, shared static 404 packaging, and security headers on guard rejections. No dependencies added or removed.
+
+Found and fixed guard early returns omitting security headers. Rate limit, body-size, timeout, and nesting rejections now use the same header wrapper. Documentation alone permits ReDoc’s blob worker; app CSP remains self-only. Frontend API calls time out after 15 seconds, and the stream shortcut is scoped to its form. Result strings use text nodes. Existing bounded stores, request validation, database rollback, single-worker policy, and simulated-output disclosure remain.
+
+No blind global identity/comment removal was used. Removed obsolete module-name descriptions and safely corrected CSS selector collisions introduced during implementation. Retained comments about replay, storage restrictions, security, and vendor adaptation. Existing font and vendor dependencies remain intentional. A tracked-text credential-pattern scan found no matching token/private-key/database-credential patterns; this is not a full secret-history or dependency-vulnerability audit.
+
+## F. Executed verification and evidence
+
+- Baseline: `.venv/bin/python -m pytest -q`, 150 passed, 90.10% coverage. Production/static build, pip check, and all original JS syntax checks passed.
+- After Python/security changes: 153 tests passed, 90.19% coverage; unchanged 70% gate. Existing training, streaming store/HTTP/live-socket, hardening, and mocked persistence tests passed. No tests were disabled.
+- `python3 scripts/build_frontend.py`: passed; landing/workspace/404 use shared renderer; current local assets copied; audit-only axe script removed before final packaging.
 - `.venv/bin/python -m pip check`: no broken requirements.
-- `python3 scripts/build_frontend.py`: passed; generated landing and workspace match the shared renderer and copy current assets.
-- `git diff --check`: passed.
-- TestClient checks: all public pages, local assets, linked internal routes, schema, health, and OAuth helper return 200. UI routes remain excluded from the API schema.
+- `node --check app/static/{app,memory,docs,reference}.js`: each executed and passed.
+- `git diff --check`: passed; source and metadata diff reviewed.
+- Browser: T3 preview was intermittent, so local gstack browse captured and measured initial layouts. T3 returned and performed final interactions, all-route/six-width checks, and final saved screenshots. No final page-level overflow. Desktop/mobile screenshots inspected; 320 px nav overflow and a gutter selector regression were caught and fixed before final checks.
+- Real local stream: 60 tokens across one resume, contiguous IDs, SHA-256 matches. Cancellation, training/evaluation (three checkpoints, honest zero held-out improvement), clear log, form invalid focus, memory save/search/filter/separation, stale-response discard, and injected network-error recovery passed. Swagger executed `/health` and returned 200 with ModelLab JSON. Keyboard Tab reached the skip link with a visible outline; Enter navigated to the playground. The overview separately completed a six-token stream with a matching SHA-256 checksum. ReDoc search returned memory operations.
+- Axe-core 4.10.3, WCAG A/AA tags including 2.1/2.2: final landing/workspace/404 scans and corrected docs/reference scans at 390/1440 reported zero violations. Expanded Swagger request/response state was also scanned after fixing execution/cancel/download/sample contrast and mobile cURL keyboard access. ReDoc transparent constraint labels were fixed using a darker semantic brand token. Axe still marks color-contrast/vendor `aria-prohibited-attr` nodes for manual review; zero automated violations is not full certification.
+- Read-only `gh repo view` confirmed owner/public status/empty metadata. `docker info` failed because the local Docker daemon socket is unavailable; container build was not run.
 
-The first isolated frontend test run exposed a missing explicit checkbox association; the existing wrapping label was valid, and an explicit `for` was added for clarity. That isolated run also fell below the suite-wide coverage gate; the subsequent complete suite passed without changing coverage settings.
+Baseline warning remains: Starlette deprecates its httpx TestClient integration. Earlier deployment statements are archived historical claims, not checks executed in this audit. Docker, physical devices, Firefox/Safari, screen-reader certification, live PostgreSQL, and production deployment health were not verified. There is no configured lint/type/E2E runner to claim as passed.
 
-T3 browser checks covered all four UI routes at 320, 390, 768, 1024, 1440, and 1600 px. No page-level horizontal overflow was measured. Desktop and mobile screenshots were visually inspected. Tested actual stream completion, a disconnect at event 5 followed by replay and a matching SHA-256 checksum across 60 tokens, cancellation, sample training/evaluation, result focus, and clearing the log. Empty-prompt validation focused and marked the field. An injected rejected browser fetch verified failure recovery and restored Start availability; success checks used real local endpoints. Swagger Try it out executed `/health` with a 200 response; operation expansion and hash links remained functional.
+## G. Genuine remaining work
 
-Axe-core 4.10.3 scans using WCAG A/AA tags reported **zero violations** on the final landing, playground, ReDoc, and expanded Swagger health operation. Scans included narrow layouts and result states. Automated checks left manual-review items: overlapping/non-text contrast nodes in application forms, vendor copy-button wrapper ARIA in Swagger, and renderer-dependent contrast nodes in ReDoc. Principal application color pairs were measured separately. Temporary axe assets were removed from source and generated output. These results do not constitute full screen-reader or WCAG certification.
+1. Manually review vendor ARIA/contrast nodes and test Safari, Firefox, and assistive technology.
+2. Start Docker to verify the container; separately verify the existing production database/deployment with authorized access. Local persistence tests mock database behavior.
+3. Consider adding an accurate GitHub description/topics and CI in a separate repository-maintenance change. No remote metadata was modified here.
+4. Resolve the existing Starlette/httpx migration in a focused dependency change. No project-wide LICENSE file exists; selecting one is a maintainer decision, separate from the preserved third-party notices.
+5. Install Vercel CLI (`npm i -g vercel`) for future platform diagnostics such as env pull, logs, and deployment inspection. No install or deployment was required for this static/local audit.
 
-## E. Important files
-
-- Added: `app/frontend.py`, `app/templates/{layout,header,footer,playground}.html`, `app/static/{tokens.css,docs.js,reference.js}`, `tests/test_frontend.py`, `DESIGN_SYSTEM.md`, this report.
-- Updated: `app/api/main.py`, `app/api/guard.py`, `app/static/{style.css,app.js,icon.svg}`, `scripts/build_frontend.py`, `vercel.json`, `README.md`.
-- Removed: superseded `app/static/index.html`.
-- No new package dependencies or retained audit-only scripts.
-
-## F. Remaining work and limits
-
-- Release was authorized after the local audit. Production deployment and public-route checks are performed after the release commit; platform deployment records identify the running revision.
-- No repository lint or static type-check configuration exists; syntax, tests, packaging, and dependency checks were run instead.
-- Existing Starlette emits an httpx deprecation warning. It does not fail the suite; a dependency migration was kept outside this visual audit.
-- Safari, Firefox, physical devices, and a full manual screen-reader audit were not exercised. Third-party documentation manual-review items above remain verification limits.
-- Documentation still needs its existing CDN connection. Streams remain transient, single-process, and lost on restart; training remains a CPU simulation. These are existing product limits, not redesign regressions.
-- Vercel CLI was upgraded from 51.8.0 to 63.1.2 using `npm i -g vercel@latest`; project inspection succeeded. npm reported a transitive package engine warning under local Node 25.6.1; Vercel production uses Node 24.x.
+Existing product limits remain explicit: mock CPU training, simulated tokens, hash-based embeddings, public namespaces without authentication, bounded single-writer snapshots, and transient streams. Commit and push were subsequently authorized by the user. Manual deployment, repository permissions, DNS, and production data changes remain outside this release action. The implementation is recorded in the release commit.

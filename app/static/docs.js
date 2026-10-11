@@ -24,3 +24,18 @@ function ModelLabDocsPlugin(system) {
     },
   };
 }
+
+// Swagger inserts cURL samples after execution; keyboard users must be able to scroll them.
+document.addEventListener("DOMContentLoaded", () => {
+  const root = document.getElementById("swagger-ui");
+  if (!root) return;
+  const labelSamples = () => {
+    for (const sample of root.querySelectorAll(".curl")) {
+      sample.tabIndex = 0;
+      sample.setAttribute("role", "region");
+      sample.setAttribute("aria-label", "cURL request sample");
+    }
+  };
+  labelSamples();
+  new MutationObserver(labelSamples).observe(root, { childList: true, subtree: true });
+});

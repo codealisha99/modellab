@@ -268,3 +268,23 @@ def test_real_server_exits_promptly_on_sigterm_with_a_client_connected():
         if proc.poll() is None:
             proc.kill()
         proc.stdout.close()
+
+
+def test_guard_rejections_keep_security_headers():
+    from app.api.guard import GuardMiddleware
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    guarded = FastAPI()
+    guarded.add_middleware(GuardMiddleware, max_body=8, rate_limit=1, global_limit=10)
+    with TestClient(guarded) as client:
+        oversized = client.post("/", content="0123456789")
+        limited = client.post("/", json={})
+        assert oversized.status_code == 413
+        assert limited.status_code == 429
+        assert limited.headers["retry-after"] == "60"
+        for response in (oversized, limited):
+            assert response.headers["x-content-type-options"] == "nosniff"
+            assert response.headers["referrer-policy"] == "no-referrer"
+            assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+            assert response.headers["cache-control"] == "no-store"

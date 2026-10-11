@@ -1,11 +1,10 @@
 # ModelLab
 
-**Port:** 8005  
-**Folder:** `05-modellab/`  
-**Original PRDs:** 08 TuneLab · 09 MemOS  
-**Acceptance:** M1–M11
+ModelLab is a developer lab for deterministic CPU mock training, scored three-tier memory, and verifiable resumable streams. It helps developers inspect a dataset → train → evaluate workflow and test what happens when a streaming connection drops.
 
-Dataset → train/val split → LoRA-style checkpoints on disk → honest base vs prompt vs tuned eval → registry → inference. Separate three-tier memory (working / episodic / semantic).
+Created and maintained by [Alisha Karma](https://alishakarma.com) ([codealisha99](https://github.com/codealisha99)). Individual contributions remain recorded in Git history. For creator inquiries: [lishykarma99@gmail.com](mailto:lishykarma99@gmail.com).
+
+Training and tokens are simulated; this is not a GPU training service. Memory uses deterministic hash embeddings. Tenant IDs separate namespaces but do not authenticate users: use sample data on the public demo.
 
 ## Install
 
@@ -52,7 +51,7 @@ source .venv/bin/activate
 pytest
 ```
 
-142 tests, ~90% coverage (the original 70% gate is kept). Streaming has three layers: store-level tests on an injected clock, HTTP tests, and **live-socket** tests (a real Uvicorn server, real mid-stream disconnects). See `VERIFICATION.md`.
+The suite enforces a 70% coverage gate. Streaming has three layers: store-level tests on an injected clock, HTTP tests, and **live-socket** tests (a real Uvicorn server, real mid-stream disconnects). See `VERIFICATION.md`.
 
 
 ## API
@@ -133,7 +132,7 @@ Create body: `prompt` (1–2000 chars), `max_tokens` (1–512, default 48), `tok
 
 ## Playground
 
-`/` is a dependency-free page (vanilla HTML/CSS/JS, local fonts, strict CSP) over this API. **Drop connection** closes the socket mid-stream while the server keeps generating; **Resume** reconnects from the last id the page applied. It shows the last event id, resume count, heartbeats, and a live countdown to expiry, then verifies the final text against the server's checksum. Reloading the page replays the stored stream, or explains that it expired. The **Model lab** panel runs the real dataset → train → evaluate pipeline on a sample dataset, shows the honest base / prompted / tuned comparison, and can seed the next stream with the trained model.
+`/` is a dependency-free page (vanilla HTML/CSS/JS, local fonts, strict CSP) over this API. **Drop connection** closes the socket mid-stream while the server keeps generating; **Resume** reconnects from the last id the page applied. It shows the last event id, resume count, heartbeats, and a live countdown to expiry, then verifies the final text against the server's checksum. Reloading the page replays the stored stream, or explains that it expired. The memory panel saves notes to working, episodic, and semantic tiers and retrieves scored matches using the existing API. A random tenant namespace is stored per tab; it is not an access credential. The **Model lab** panel runs the real dataset → train → evaluate pipeline on a sample dataset, shows the honest base / prompted / tuned comparison, and can seed the next stream with the trained model.
 
 ## Request guard
 
@@ -141,7 +140,7 @@ Pure ASGI middleware (it never buffers SSE): POST bodies are capped (default 256
 
 ## Environment variables
 
-Local development requires no secrets. Production uses Neon via `DATABASE_URL` and `DATABASE_URL_UNPOOLED` (stored only in Railway variables).
+Local development requires no secrets. Copy `.env.example` as a reference for shell variables; the application does not automatically load `.env`. Production persistence uses `DATABASE_URL` and `DATABASE_URL_UNPOOLED` on the API host. Never expose database credentials in the frontend.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -162,13 +161,13 @@ Local development requires no secrets. Production uses Neon via `DATABASE_URL` a
 | `TRUSTED_PROXY_IPS` | `127.0.0.1` | Proxies whose forwarded headers Uvicorn trusts. Never `*` on a public service. |
 | `OTEL_SDK_DISABLED` | unset | Set `true` to disable tracing export. |
 
-## Production deployment
+## Existing deployment configuration
 
 - Frontend: https://modellab-nine.vercel.app
 - Railway API: https://api-production-b980.up.railway.app
 - API docs: https://modellab-nine.vercel.app/docs
 - GitHub: https://github.com/codealisha99/modellab
-- Neon project: `modellab` (`fancy-leaf-15190823`), main branch, Singapore.
+These are recorded deployment addresses, not a claim of current availability. This audit uses local services and does not deploy.
 
 GitHub `main` is connected to both Railway and Vercel. Railway builds the root Dockerfile; Vercel packages the existing static playground using `scripts/build_frontend.py`. `vercel.json` proxies `/v1/*`, `/health`, and API documentation to Railway, keeping browser requests on the same origin. Database credentials belong only in Railway, never in Vercel or GitHub.
 
@@ -193,6 +192,10 @@ Stream tokens are simulated, not model output. Training is a deterministic CPU m
 
 ## Frontend design and verification
 
-The FastAPI pages and Vercel static output share the renderer in `app/frontend.py` and templates in `app/templates/`. Semantic tokens live in `app/static/tokens.css`; component and responsive styles live in `app/static/style.css`. Fonts are served locally. API documentation uses pinned Swagger UI and ReDoc CDN assets, with a small Swagger plugin that keeps endpoint links outside disclosure buttons.
+The overview, experiment workspace, interactive documentation, reference, and HTML 404 use a consistent shell. The FastAPI pages and Vercel static output share the renderer in `app/frontend.py` and templates in `app/templates/`. Semantic tokens live in `app/static/tokens.css`; component and responsive styles live in `app/static/style.css`. Fonts are served locally. API documentation uses pinned Swagger UI and ReDoc CDN assets, with a small Swagger plugin that keeps endpoint links outside disclosure buttons.
 
 Build the static output with `python3 scripts/build_frontend.py`. This regenerates the ignored `public/` directory. See [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) for styling conventions and [AUDIT_REPORT.md](AUDIT_REPORT.md) for the redesign scope, tests, and remaining verification limits.
+
+## Project lineage
+
+The original TuneLab training and MemOS memory requirements were consolidated into ModelLab. The implementation remains a deterministic CPU demo, as described in [PRD.md](PRD.md). Historical commit identities and third-party font licenses are preserved. See [CONTRIBUTING.md](CONTRIBUTING.md) for maintainer and validation guidance.
