@@ -7,7 +7,8 @@ from starlette.concurrency import run_in_threadpool
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Annotated, Any, Dict, List, Literal, Optional
@@ -21,6 +22,7 @@ from .guard import GuardMiddleware
 from .. import persistence
 from ..training import pipeline
 from ..memory import memos
+from ..frontend import render_page
 
 init_tracing("modellab")
 streams = StreamStore(StreamSettings.from_env())
@@ -43,6 +45,8 @@ app = FastAPI(
     version="1.1.0",
     description="Training (LoRA/QLoRA) + Memory (working/episodic/semantic) + resumable SSE streams. Stream tokens are simulated.",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
 )
 app.add_middleware(GuardMiddleware)
 
@@ -222,10 +226,52 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 @app.get("/", include_in_schema=False)
 def playground():
-    return FileResponse(STATIC / "index.html")
+    return HTMLResponse(render_page("landing"))
 
 
 @app.get("/playground", include_in_schema=False)
 def dedicated_playground():
-    html = (STATIC / "index.html").read_text().replace('class="landing"', 'class="workspace"')
-    return HTMLResponse(html.replace("ModelLab · Explore models and streaming", "ModelLab · Streaming playground"))
+    return HTMLResponse(render_page("workspace"))
+
+
+def _documentation_page(page, response):
+    html = response.body.decode()
+    body = re.search(r"<body>(.*?)</body>", html, re.S).group(1)
+    if page == "docs":
+        body = '<script src="/static/docs.js"></script>' + body.replace(
+            "const ui = SwaggerUIBundle({", "const ui = SwaggerUIBundle({\nplugins: [ModelLabDocsPlugin],"
+        )
+    if page == "redoc":
+        body = body.replace(f'<redoc spec-url="{app.openapi_url}"></redoc>', '<div id="redoc"></div>')
+        body += '<script src="/static/reference.js"></script>'
+    css = '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1/swagger-ui.css" />' if page == "docs" else ""
+    alternative = '<a href="/redoc">Read the API reference</a>' if page == "docs" else '<a href="/docs">Open interactive docs</a>'
+    intro = f'''<section class="docs-intro"><h1>{"Interactive API docs" if page == "docs" else "API reference"}</h1>
+        <p>Explore the real endpoints for datasets, model experiments, memory, and streams. Training and token generation are simulated.</p>
+        <div class="docs-links">{alternative}<a href="/openapi.json">OpenAPI schema</a></div></section>
+        <noscript><p class="error">Enable JavaScript to browse the API documentation, or download the <a href="/openapi.json">OpenAPI schema</a>.</p></noscript>'''
+    return HTMLResponse(render_page(page, content=intro + f'<section id="api-reference" class="api-reference" aria-label="API reference" tabindex="-1">{body}</section>', extra_head=css))
+
+
+@app.get("/docs", include_in_schema=False)
+def interactive_docs():
+    return _documentation_page("docs", get_swagger_ui_html(
+        openapi_url=app.openapi_url, title="ModelLab API", swagger_favicon_url="/static/icon.svg",
+        oauth2_redirect_url="/docs/oauth2-redirect",
+        swagger_js_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1/swagger-ui-bundle.js",
+        swagger_css_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1/swagger-ui.css",
+        swagger_ui_parameters={"docExpansion": "list", "defaultModelsExpandDepth": -1, "filter": True},
+    ))
+
+
+@app.get("/redoc", include_in_schema=False)
+def api_reference():
+    return _documentation_page("redoc", get_redoc_html(
+        openapi_url=app.openapi_url, title="ModelLab API", redoc_favicon_url="/static/icon.svg", with_google_fonts=False,
+        redoc_js_url="https://cdn.jsdelivr.net/npm/redoc@2.5.4/bundles/redoc.standalone.js",
+    ))
+
+
+@app.get("/docs/oauth2-redirect", include_in_schema=False)
+def docs_oauth_redirect():
+    return get_swagger_ui_oauth2_redirect_html()

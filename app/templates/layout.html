@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="$description" />
+    <meta name="theme-color" content="#f4f7fb" />
+    <title>$title</title>
+    <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
+    $extra_head
+    <link rel="stylesheet" href="/static/tokens.css" />
+    <link rel="stylesheet" href="/static/style.css" />
+    $scripts
+  </head>
+  <body class="$page_class">
+    <a class="skip-link" href="#$skip_target">Skip to $skip_label</a>
+    $header
+    <main id="main-content" tabindex="-1">$content</main>
+    $footer
+  </body>
+</html>

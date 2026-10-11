@@ -1,39 +1,9 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="A resumable streaming playground. Drop the connection, resume exactly where you left off, watch heartbeats, and see stored streams expire. Tokens are simulated." />
-    <meta name="theme-color" content="#ffffff" />
-    <title>ModelLab · Explore models and streaming</title>
-    <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
-    <link rel="preload" href="/static/fonts/manrope.ttf" as="font" type="font/ttf" crossorigin />
-    <link rel="stylesheet" href="/static/style.css" />
-    <script src="/static/app.js" defer></script>
-  </head>
-  <body class="landing">
-    <a class="skip-link" href="#playground">Skip to the playground</a>
-    <header class="nav">
-      <a class="brand" href="/" aria-label="ModelLab home">
-        <svg class="brand-mark" viewBox="0 0 36 36" fill="none" aria-hidden="true">
-          <rect width="36" height="36" rx="10" fill="currentColor" />
-          <path d="M10 24V12l8 8 8-8v12" stroke="white" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-        ModelLab
-      </a>
-      <nav aria-label="Main navigation">
-        <a href="/playground">Playground</a>
-        <a href="/docs">API docs</a>
-      </nav>
-    </header>
-
-    <main>
+      <div class="service-status" role="status"><span class="signal" id="health-dot" aria-hidden="true"></span><span id="health-text">Checking service…</span><span class="demo-label">Simulation environment</span></div>
       <section class="hero landing-only">
         <div class="hero-copy">
-        <span class="intro-pill"><span class="signal" id="health-dot"></span><span id="health-text">Checking service…</span></span>
-        <h1>A dropped connection.<br />No missing tokens.</h1>
-        <p>Train a sample model. Watch a stream unfold. Drop the connection and pick up exactly where you left off.</p>
-        <div class="hero-actions"><a class="action-link" href="#playground">Try it here</a><a class="text-link" href="/playground">Open the playground <span aria-hidden="true">↗</span></a></div>
+        <h1>Explore the model.<br />Trust the stream.</h1>
+        <p>A practical lab for model experiments and resumable streams. Train a sample, inspect the result, and reconnect without losing your place.</p>
+        <div class="hero-actions"><a class="action-link" href="#playground">Try a stream</a><a class="text-link" href="/playground">Open workspace</a></div>
         <p class="honest">A hands-on demo with simulated tokens and CPU mock training.</p>
         </div>
         <figure class="replay-diagram" aria-label="Replay example: the connection drops after event 42, and resumes at event 43 while generation continues.">
@@ -51,15 +21,18 @@
         <p>Start a stream, drop the connection, and resume from the last event. Tokens and training are simulated.</p>
         <a href="/">Back to ModelLab</a>
       </section>
-      <div class="section-heading"><div><h2>Put the connection to the test.</h2><p>Everything below runs against the live API.</p></div><a class="landing-only text-link" href="/playground">Open full playground <span aria-hidden="true">↗</span></a></div>
+      <div class="section-heading"><div><h2>Put the connection to the test.</h2><p>Start, disconnect, and resume. Then verify the result.</p></div><a class="landing-only text-link" href="/playground">Open workspace</a></div>
       <section class="playground" id="playground" aria-label="Streaming playground">
-        <div class="card controls">
+        <form class="card controls" id="stream-form" novalidate aria-labelledby="controls-title">
+          <div class="panel-head"><h2 id="controls-title">Stream controls</h2><span class="panel-note">Simulated tokens</span></div>
           <label for="prompt">Prompt</label>
-          <textarea id="prompt" rows="3" maxlength="2000" spellcheck="false">Explain why resumable streams need stable event ids.</textarea>
+          <textarea id="prompt" rows="3" maxlength="2000" spellcheck="false" required aria-describedby="prompt-hint error">Explain why resumable streams need stable event ids.</textarea>
+          <p class="field-hint" id="prompt-hint">Use any prompt. Output is deterministic, not a model response.</p>
           <div class="row">
             <div class="field">
               <label for="max-tokens">Tokens</label>
-              <input id="max-tokens" type="number" min="1" max="512" value="60" inputmode="numeric" />
+              <input id="max-tokens" type="number" min="1" max="512" value="60" inputmode="numeric" required aria-describedby="token-hint error" />
+              <span class="field-hint" id="token-hint">1–512 tokens</span>
             </div>
             <div class="field">
               <label for="speed">Speed</label>
@@ -72,7 +45,7 @@
             </div>
           </div>
           <div class="field pause">
-            <label for="pause">Thinking pause before first token</label>
+            <label for="pause">Pause before the first token</label>
             <select id="pause">
               <option value="0" selected>None</option>
               <option value="5000">5 s</option>
@@ -81,28 +54,28 @@
             </select>
           </div>
           <div class="actions">
-            <button class="primary" id="start" type="button">Start stream <span aria-hidden="true">→</span></button>
+            <button class="primary" id="start" type="submit">Start stream</button>
             <button id="drop" type="button" disabled>Drop connection</button>
             <button id="resume" type="button" disabled>Resume</button>
             <button id="cancel" type="button" disabled>Cancel</button>
           </div>
-          <p class="hint">Drop closes the socket mid-stream; the server keeps generating. Resume reconnects from the last id you saw. <kbd>⌘</kbd><kbd>↵</kbd> starts.</p>
+          <p class="hint" id="stream-hint">Drop closes the socket mid-stream; the server keeps generating. Resume reconnects from the last id you saw. <kbd>Ctrl</kbd> / <kbd>⌘</kbd> + <kbd>Enter</kbd> starts.</p>
           <p class="error" id="error" role="alert" hidden></p>
-        </div>
+        </form>
 
         <div class="card output-card">
           <div class="panel-head">
             <h2>Output</h2>
             <span class="status" id="state" data-state="idle" role="status">Idle</span>
           </div>
-          <pre class="output" id="output" aria-live="polite" tabindex="0"><span class="placeholder">Start a stream to see tokens arrive.</span></pre>
+          <pre class="output" id="output" role="region" aria-label="Generated token output" tabindex="0"><span class="placeholder">Start a stream to see tokens arrive.</span></pre>
           <dl class="stats">
             <div><dt>Last event id</dt><dd id="stat-last">0</dd></div>
             <div><dt>Resumes</dt><dd id="stat-resumes">0</dd></div>
             <div><dt>Heartbeats</dt><dd id="stat-beats">0</dd></div>
             <div><dt>Replay expires</dt><dd id="stat-expiry">—</dd></div>
           </dl>
-          <p class="verdict" id="verdict" hidden></p>
+          <p class="verdict" id="verdict" role="status" aria-atomic="true" hidden></p>
         </div>
 
         <div class="card lab-card">
@@ -110,10 +83,10 @@
             <h2>Model lab</h2>
             <button class="primary-sm" id="train" type="button">Train sample model</button>
           </div>
-          <p class="lab-note">Runs the real pipeline on a 20-row sample dataset: validate, split 80/20, write 3 checkpoints, then compare base, prompt-engineered and tuned on the held-out rows. Training is a CPU mock, and the tuned model only answers rows it saw in training.</p>
+          <p class="lab-note">Train on a 20-row sample and compare base, prompted, and tuned accuracy on the held-out split. This CPU mock creates three checkpoints; it only answers examples seen during training.</p>
           <p class="error" id="lab-error" role="alert" hidden></p>
-          <div id="lab-result" hidden>
-            <p class="lab-answer" id="lab-answer"></p>
+          <div id="lab-result" role="region" aria-label="Model evaluation results" tabindex="-1" hidden>
+            <p class="lab-answer" id="lab-answer" role="status"></p>
             <dl class="lab-stats">
               <div><dt>Base</dt><dd id="lab-base">—</dd></div>
               <div><dt>Prompted</dt><dd id="lab-prompt">—</dd></div>
@@ -121,7 +94,7 @@
               <div><dt>Delta vs base</dt><dd id="lab-delta">—</dd></div>
             </dl>
             <p class="lab-meta"><code id="lab-model"></code> · <span id="lab-ckpt"></span></p>
-            <label class="check"><input type="checkbox" id="use-model" checked /> Use this model for the next stream</label>
+            <label class="check" for="use-model"><input type="checkbox" id="use-model" checked /> Use this model for the next stream</label>
           </div>
         </div>
 
@@ -130,18 +103,12 @@
             <h2>Connection log</h2>
             <button class="quiet" id="clear-log" type="button">Clear</button>
           </div>
+          <p class="log-empty" id="log-empty">Connection events appear here when you start a stream.</p>
           <ol class="log" id="log" aria-label="Connection log"></ol>
         </div>
       </section>
       <section class="capabilities landing-only" aria-label="What you can explore">
         <article><h2>Replay you can verify</h2><p>Stable event IDs keep tokens in order. A final checksum confirms the complete output, even after reconnecting.</p></article>
         <article><h2>A model, from start to finish</h2><p>Split a sample dataset, create mock checkpoints, and compare base, prompted, and tuned results on held-out rows.</p></article>
-        <article><h2>Memory beyond a session</h2><p>Datasets, models, and tenant memory persist in the database. Token streams stay replayable for five minutes after completion.</p></article>
+        <article><h2>Memory beyond a session</h2><p>Datasets, models, and tenant memory persist in the database. Finished streams remain replayable for a limited window; they are lost if the server restarts.</p></article>
       </section>
-    </main>
-
-    <footer>
-      <p>Single-process demo: streams live in memory and are lost on restart. See <a href="/docs">/docs</a> for the HTTP API.</p>
-    </footer>
-  </body>
-</html>

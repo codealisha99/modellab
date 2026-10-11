@@ -1,0 +1,30 @@
+@font-face { font-family: Manrope; src: url('/static/fonts/manrope.ttf') format('truetype'); font-weight: 200 800; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('/static/fonts/jetbrains-mono.ttf') format('truetype'); font-weight: 100 800; font-display: swap; }
+:root {
+  color-scheme: light;
+  --font-sans: Manrope, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --text-xs: .75rem; --text-sm: .875rem; --text-base: 1rem; --text-lg: 1.125rem;
+  --text-xl: 1.5rem; --text-page: clamp(1.75rem, 3.5vw, 2.25rem); --text-display: clamp(2.125rem, 4.6vw, 3.5rem);
+  --weight-normal: 450; --weight-medium: 550; --weight-strong: 650; --weight-bold: 750;
+  --leading-tight: 1.12; --leading-body: 1.65;
+  --space-1: .25rem; --space-2: .5rem; --space-3: .75rem; --space-4: 1rem;
+  --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem; --space-12: 3rem; --space-16: 4rem;
+  --brand: #2855d9; --brand-hover: #2044b1; --brand-active: #19378f; --brand-soft: #eaf0ff;
+  --background: #f4f7fb; --surface: #ffffff; --surface-muted: #edf1f7;
+  --text: #182438; --text-secondary: #526075; --text-muted: #606c80;
+  --border: #dce3ed; --border-control: #7c899e;
+  --focus: #2855d9; --focus-ring: #dce6ff;
+  --success: #176b53; --success-soft: #e4f4ec; --warning: #85530b; --warning-soft: #fff1d7;
+  --error: #a32928; --error-soft: #fdecec; --info: #2855b5; --info-soft: #eaf0ff;
+  --disabled-bg: #edf1f7; --disabled-text: #697589;
+  --terminal: #192338; --terminal-text: #dce4f5; --terminal-muted: #a6b3cd;
+  --terminal-border: #485774; --terminal-surface: #2c3a53;
+  --terminal-success: #a4eed9; --terminal-success-bg: #254a45;
+  --terminal-warning: #ffdc9b; --terminal-warning-bg: #514124;
+  --terminal-error: #ffbfb7; --terminal-error-bg: #59343a;
+  --radius-control: .5rem; --radius-panel: .75rem; --radius-diagram: 1rem; --radius-pill: 999px;
+  --border-width: 1px; --shadow-focus: 0 0 0 3px var(--focus-ring);
+  --content-width: 75rem; --gutter: clamp(1rem, 3vw, 2rem); --grid-gap: 1.5rem;
+  --control-height: 2.75rem; --z-skip: 100; --duration: 140ms; --ease: ease-out;
+}

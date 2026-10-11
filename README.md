@@ -30,7 +30,7 @@ OTEL_SDK_DISABLED=true python -m app.run
 OTEL_SDK_DISABLED=true uvicorn app.api.main:app --host 0.0.0.0 --port 8005 --reload --no-access-log
 ```
 
-Open http://localhost:8005/ for the streaming playground, http://localhost:8005/docs for the API, and `GET /health`. Use a **single worker**: streams and rate limits live in process memory.
+Open http://localhost:8005/ for the overview and embedded playground, http://localhost:8005/playground for the dedicated workspace, http://localhost:8005/docs for interactive API docs, and http://localhost:8005/redoc for the reference. Health is available at `GET /health`. Use a **single worker**: streams and rate limits live in process memory.
 
 ## Run with Docker
 
@@ -190,3 +190,9 @@ Use `railway deployment list --service api` and `vercel inspect <deployment-url>
 ## Honesty
 
 Stream tokens are simulated, not model output. Training is a deterministic CPU mock, not PEFT on a GPU. Tuned accuracy only hits items seen in train — the eval says so. Memory is tenant-scoped with deterministic hash embeddings, not pgvector. With `DATABASE_URL`, datasets, models, and memory persist in Neon; without it, they remain in-process. Streams are in-process too: a restart loses them.
+
+## Frontend design and verification
+
+The FastAPI pages and Vercel static output share the renderer in `app/frontend.py` and templates in `app/templates/`. Semantic tokens live in `app/static/tokens.css`; component and responsive styles live in `app/static/style.css`. Fonts are served locally. API documentation uses pinned Swagger UI and ReDoc CDN assets, with a small Swagger plugin that keeps endpoint links outside disclosure buttons.
+
+Build the static output with `python3 scripts/build_frontend.py`. This regenerates the ignored `public/` directory. See [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) for styling conventions and [AUDIT_REPORT.md](AUDIT_REPORT.md) for the redesign scope, tests, and remaining verification limits.

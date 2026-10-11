@@ -9,6 +9,7 @@
     train: $("train"), labError: $("lab-error"), labResult: $("lab-result"), labAnswer: $("lab-answer"), useModel: $("use-model"),
     labBase: $("lab-base"), labPrompt: $("lab-prompt"), labTuned: $("lab-tuned"), labDelta: $("lab-delta"), labModel: $("lab-model"), labCkpt: $("lab-ckpt"),
     log: $("log"), clear: $("clear-log"), dot: $("health-dot"), healthText: $("health-text"),
+    form: $("stream-form"), logEmpty: $("log-empty"),
   };
   const STORE_KEY = "modellab.stream";
   const TERMINAL = ["done", "cancelled"];
@@ -16,15 +17,24 @@
   // Everything the page knows about the current stream. Token text is rebuilt from `tokens`
   // only, so a reconnect can never double-append or reorder it.
   let s = null;
-  let tick = null;
+  let starting = false;
+  let requestVersion = 0;
   let labModelId = null;
+
+  function storedStream(id) {
+    try {
+      if (id === undefined) return sessionStorage.getItem(STORE_KEY);
+      if (id === null) sessionStorage.removeItem(STORE_KEY);
+      else sessionStorage.setItem(STORE_KEY, id);
+    } catch { /* Storage can be unavailable in private or restricted browser contexts. */ }
+    return null;
+  }
 
   const fresh = (id) => ({
     id, es: null, lastId: 0, tokens: [], resumes: 0, beats: 0, status: "running",
     terminal: null, expiresAt: null, intact: true, dropped: false, ending: false,
   });
 
-  // ---------------------------------------------------------------- ui helpers
   function log(kind, text) {
     const li = document.createElement("li");
     const t = document.createElement("span"); t.className = "t"; t.textContent = new Date().toLocaleTimeString([], { hour12: false });
@@ -32,6 +42,7 @@
     const m = document.createElement("span"); m.textContent = text;
     li.append(t, k, m);
     el.log.prepend(li);
+    el.logEmpty.hidden = true;
     while (el.log.children.length > 200) el.log.lastChild.remove();
   }
 
@@ -40,9 +51,13 @@
     el.state.textContent = label;
   }
 
-  function showError(message) {
+  function showError(message, field) {
     el.error.hidden = !message;
     el.error.textContent = message || "";
+    if (field) {
+      field.setAttribute("aria-invalid", "true");
+      field.focus();
+    }
   }
 
   function renderOutput() {
@@ -86,12 +101,15 @@
 
   function refresh() { renderOutput(); renderStats(); renderButtons(); }
 
-  // ----------------------------------------------------------------- transport
   async function api(path, options) {
-    const r = await fetch(path, options);
-    let body = null;
-    try { body = await r.json(); } catch { /* 204 or non-JSON */ }
-    return { status: r.status, ok: r.ok, body };
+    try {
+      const r = await fetch(path, options);
+      let body = null;
+      try { body = await r.json(); } catch { /* 204 or non-JSON */ }
+      return { status: r.status, ok: r.ok, body };
+    } catch {
+      return { status: 0, ok: false, body: { detail: "Could not reach the service. Check your connection and try again." } };
+    }
   }
 
   function disconnect() {
@@ -166,15 +184,16 @@
   // After a hard failure, ask the status endpoint why, so the message is accurate.
   async function diagnose() {
     const mine = s;
+    if (!mine) return;
     const r = await api(`/v1/streams/${encodeURIComponent(mine.id)}`);
     if (s !== mine) return;
     if (r.status === 410) {
-      mine.status = "expired"; sessionStorage.removeItem(STORE_KEY);
+      mine.status = "expired"; storedStream(null);
       setState("expired", "Expired");
       log("expired", "the server dropped this stream; replay is no longer possible");
       showError("This stream expired. Stored streams are only kept for a limited time after they finish. Start a new one.");
     } else if (r.status === 404) {
-      mine.status = "error"; sessionStorage.removeItem(STORE_KEY);
+      mine.status = "error"; storedStream(null);
       setState("error", "Not found");
       log("error", "stream not found (the server may have restarted)");
       showError("The server does not know this stream. It may have restarted; streams are kept in memory.");
@@ -184,6 +203,7 @@
       mine.status = "running";
       setState("dropped", "Disconnected");
       log("error", `connection refused (status ${r.status}); press Resume to retry`);
+      showError(r.status === 0 ? r.body.detail : "The connection closed. Select Resume to retry, or start a new stream.");
     }
     refresh();
   }
@@ -200,16 +220,18 @@
     const text = mine.tokens.join("");
     let hashOk = null;
     if (window.crypto && crypto.subtle) {
-      const bytes = new TextEncoder().encode(text);
-      const hex = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
-      hashOk = hex === data.sha256;
+      try {
+        const bytes = new TextEncoder().encode(text);
+        const hex = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+        hashOk = hex === data.sha256;
+      } catch { /* Token count is still checked when browser cryptography is unavailable. */ }
     }
     if (s !== mine) return;
     const countOk = mine.tokens.length === data.total_tokens && mine.intact;
     const ok = countOk && hashOk !== false;
     const resumed = mine.resumes ? ` across ${mine.resumes} resume${mine.resumes === 1 ? "" : "s"}` : "";
     verdict(ok, ok
-      ? `Verified${resumed}: ${data.total_tokens} tokens, contiguous ids, ${hashOk ? "SHA-256 matches the server" : "checksum skipped (needs HTTPS or localhost)"}.`
+      ? `Verified${resumed}: ${data.total_tokens} tokens, contiguous ids, ${hashOk ? "SHA-256 matches the server" : "checksum unavailable in this browser context"}.`
       : `Mismatch: got ${mine.tokens.length} tokens, server sent ${data.total_tokens}${hashOk === false ? ", checksum differs" : ""}.`);
     const st = await api(`/v1/streams/${encodeURIComponent(mine.id)}`);
     if (s === mine && st.ok && st.body.expires_in_seconds != null) {
@@ -219,7 +241,6 @@
     refresh();
   }
 
-  // --------------------------------------------------------------- model lab
   const SAMPLE = [
     ["capital of France", "Paris"], ["capital of Japan", "Tokyo"], ["capital of Italy", "Rome"], ["capital of Spain", "Madrid"],
     ["capital of Egypt", "Cairo"], ["capital of Kenya", "Nairobi"], ["capital of Peru", "Lima"], ["capital of Norway", "Oslo"],
@@ -233,9 +254,11 @@
   const detail = (r) => (r.body && (Array.isArray(r.body.detail) ? r.body.detail.map((d) => d.message).join("; ") : r.body.detail)) || `HTTP ${r.status}`;
 
   async function trainSample() {
+    if (el.train.disabled) return;
     el.labError.hidden = true;
     el.train.disabled = true;
     el.train.textContent = "Training…";
+    el.train.setAttribute("aria-busy", "true");
     try {
       const ds = await post("/v1/datasets", { name: "sample-capitals", records: SAMPLE });
       if (!ds.ok) throw new Error(`dataset: ${detail(ds)}`);
@@ -255,6 +278,7 @@
       el.labModel.textContent = labModelId;
       el.labCkpt.textContent = model.ok ? `${model.body.checkpoints.length} checkpoints, final loss ${model.body.checkpoints.at(-1).loss}` : "";
       el.labResult.hidden = false;
+      el.labResult.focus({ preventScroll: true });
       log("lab", `${labModelId}: tuned ${pct(e.fine_tuned)} vs base ${pct(e.base)}`);
     } catch (err) {
       el.labError.hidden = false;
@@ -262,18 +286,25 @@
     } finally {
       el.train.disabled = false;
       el.train.textContent = "Train sample model";
+      el.train.removeAttribute("aria-busy");
     }
   }
 
-  // ------------------------------------------------------------------- actions
   async function start() {
+    if (starting) return;
     showError("");
+    el.prompt.removeAttribute("aria-invalid");
+    el.maxTokens.removeAttribute("aria-invalid");
     const prompt = el.prompt.value.trim();
     const maxTokens = Number(el.maxTokens.value);
-    if (!prompt) return showError("Enter a prompt first.");
-    if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > 512) return showError("Tokens must be a whole number from 1 to 512.");
+    if (!prompt) return showError("Enter a prompt first.", el.prompt);
+    if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > 512) return showError("Tokens must be a whole number from 1 to 512.", el.maxTokens);
+    starting = true;
+    requestVersion += 1;
     disconnect();
     el.start.disabled = true;
+    el.start.textContent = "Starting…";
+    el.start.setAttribute("aria-busy", "true");
     const r = await api("/v1/streams", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -282,12 +313,17 @@
       }),
     });
     el.start.disabled = false;
+    el.start.textContent = "Start stream";
+    el.start.removeAttribute("aria-busy");
+    starting = false;
     if (!r.ok) {
       const detail = Array.isArray(r.body && r.body.detail) ? r.body.detail.map((d) => `${d.path}: ${d.message}`).join("; ") : (r.body && r.body.detail) || `HTTP ${r.status}`;
+      if (s && s.status === "running") setState("dropped", "Disconnected");
+      refresh();
       return showError(`Could not start the stream: ${detail}`);
     }
     s = fresh(r.body.stream_id);
-    sessionStorage.setItem(STORE_KEY, s.id);
+    storedStream(s.id);
     verdict(true, "");
     log("start", `stream ${s.id.slice(0, 8)}…; ${r.body.max_tokens} simulated tokens${r.body.model_id ? ` seeded by ${r.body.model_id}` : ""}`);
     connect("start");
@@ -308,16 +344,21 @@
     const mine = s;
     const r = await api(`/v1/streams/${encodeURIComponent(mine.id)}/cancel`, { method: "POST" });
     if (s !== mine) return;
-    if (!r.ok) return diagnose();
+    if (!r.ok) {
+      showError(`Could not cancel the stream: ${detail(r)}`);
+      return;
+    }
     // The cancelled event is in the stream; reconnect to receive it and finish cleanly.
     if (!mine.es) connect("resume");
   }
 
   // After a page reload, pick the stream back up from id 0: this *is* a resume.
   async function restore() {
-    const id = sessionStorage.getItem(STORE_KEY);
+    const id = storedStream();
     if (!id) return;
+    const version = requestVersion;
     const r = await api(`/v1/streams/${encodeURIComponent(id)}`);
+    if (version !== requestVersion) return;
     s = fresh(id);
     if (!r.ok) { diagnose(); log("restore", `previous stream is gone (status ${r.status})`); return; }
     log("restore", "page reloaded; replaying the stored stream from the start");
@@ -337,18 +378,27 @@
     }
   }
 
-  el.start.addEventListener("click", start);
+  el.form.addEventListener("submit", (e) => { e.preventDefault(); start(); });
   el.drop.addEventListener("click", drop);
   el.resume.addEventListener("click", () => { showError(""); connect("resume"); });
   el.cancel.addEventListener("click", cancel);
   el.train.addEventListener("click", trainSample);
-  el.clear.addEventListener("click", () => el.log.replaceChildren());
+  el.clear.addEventListener("click", () => { el.log.replaceChildren(); el.logEmpty.hidden = false; });
+  for (const field of [el.prompt, el.maxTokens]) {
+    field.addEventListener("input", () => field.removeAttribute("aria-invalid"));
+  }
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); start(); }
   });
   window.addEventListener("pagehide", disconnect);
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted) {
+      health();
+      if (s && s.status === "running" && !s.dropped) connect("resume");
+    }
+  });
 
-  tick = setInterval(() => {
+  setInterval(() => {
     if (!s || s.expiresAt === null) return;
     renderStats();
     if (Date.now() >= s.expiresAt && s.status !== "expired") {

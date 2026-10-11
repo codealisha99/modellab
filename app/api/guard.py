@@ -23,7 +23,8 @@ CSP = (
 DOCS_CSP = (
     b"default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
     b"style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
-    b"img-src 'self' data: https://fastapi.tiangolo.com; frame-ancestors 'none'; base-uri 'none'"
+    b"img-src 'self' data: https://fastapi.tiangolo.com https://cdn.redoc.ly; "
+    b"connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'none'; base-uri 'none'"
 )
 
 
