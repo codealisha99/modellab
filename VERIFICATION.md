@@ -49,7 +49,7 @@ Ten deliberate bugs were injected into `store.py` one at a time; the suite faile
 
 ## Not verified / known limits
 
-- **No public deployment.** No Railway credentials were used; steps are in `README.md`.
+- **Historical note (October 9):** public deployment had not been performed at that point. See the October 11 deployment verification below.
 - Single process only. Streams are lost on restart, and multiple replicas would not share them. Rate limits are likewise per process.
 - Heartbeat interval must be shorter than any intermediary's idle timeout; that was not tested against a real proxy.
 - The expiry window is fixed from completion; a client that is still reading at expiry is not cut off, but cannot resume afterwards.
@@ -76,4 +76,21 @@ Shutdown was measured on the real process and in Docker: **15 s → 0 s** locall
 
 Browser: the new Model lab panel trained and evaluated through the real API (honest result "no: +0.0 over base", because held-out rows were never seen in training), and a stream seeded by the trained model verified (`60 tokens … SHA-256 matches`). Desktop 1280 px layout measured: two columns, no horizontal overflow.
 
-Still not covered: no authentication (datasets and models are shared across visitors, only memory is tenant-scoped); a single process; no public deployment.
+Still not covered: no authentication (datasets and models are shared across visitors, only memory is tenant-scoped); a single process. Public deployment was subsequently verified below.
+
+
+## Production deployment — 2026-10-11
+
+- Public frontend: https://modellab-nine.vercel.app (Vercel static hosting).
+- API: https://api-production-b980.up.railway.app (Railway Docker, one replica in Singapore).
+- Database: Neon `modellab`, project `fancy-leaf-15190823`, main branch in Singapore. Credentials stored in Railway and a gitignored local `.env`; no credentials committed or sent to the frontend.
+- GitHub `codealisha99/modellab` main connected to both platforms. Git-triggered production deployments succeeded.
+- `pytest`: **142 passed**, approximately **90% coverage**. Added restart recovery, failed database write rollback, and private evaluation tenant persistence checks. `pip check` passed.
+- Real Neon write/read recovery verified for datasets, models, memory, inference, and recreated checkpoint files.
+- Public Vercel `/health`, `/docs`, and `/openapi.json` return 200. The health endpoint checks Neon connectivity.
+- Public API flow verified: ingest dataset → train → evaluate → infer; add and retrieve tenant memory.
+- Real HTTP SSE through Vercel: read 4 token events, disconnect, resume with `Last-Event-ID`, receive all 20 tokens with consecutive event IDs and matching SHA-256; reconnect after terminal event returns 204.
+- Restarted the deployed Railway service, then verified the same dataset, trained model, evaluation score, inference result, and tenant memory survived.
+- Browser verified healthy status, sample model training/evaluation, and streaming through the public frontend. Desktop 1280 px has no horizontal overflow.
+
+Remaining intentional limits: training and token generation are simulated; streams and rate limits are in-process; one worker/replica only; no authentication; datasets and models are shared across visitors. Neon persistence uses bounded JSONB snapshots for this small demo rather than a multi-writer relational registry.
