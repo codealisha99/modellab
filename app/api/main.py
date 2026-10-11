@@ -7,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Annotated, Any, Dict, List, Literal, Optional
@@ -223,3 +223,9 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 @app.get("/", include_in_schema=False)
 def playground():
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/playground", include_in_schema=False)
+def dedicated_playground():
+    html = (STATIC / "index.html").read_text().replace('class="landing"', 'class="workspace"')
+    return HTMLResponse(html.replace("ModelLab · Explore models and streaming", "ModelLab · Streaming playground"))

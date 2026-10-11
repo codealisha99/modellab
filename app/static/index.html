@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="A resumable streaming playground. Drop the connection, resume exactly where you left off, watch heartbeats, and see stored streams expire. Tokens are simulated." />
     <meta name="theme-color" content="#ffffff" />
-    <title>ModelLab · Streaming playground</title>
+    <title>ModelLab · Explore models and streaming</title>
     <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
     <link rel="preload" href="/static/fonts/manrope.ttf" as="font" type="font/ttf" crossorigin />
     <link rel="stylesheet" href="/static/style.css" />
     <script src="/static/app.js" defer></script>
   </head>
-  <body>
+  <body class="landing">
+    <a class="skip-link" href="#playground">Skip to the playground</a>
     <header class="nav">
       <a class="brand" href="/" aria-label="ModelLab home">
         <svg class="brand-mark" viewBox="0 0 36 36" fill="none" aria-hidden="true">
@@ -21,19 +22,36 @@
         ModelLab
       </a>
       <nav aria-label="Main navigation">
-        <a href="#playground">Playground</a>
+        <a href="/playground">Playground</a>
         <a href="/docs">API docs</a>
       </nav>
     </header>
 
     <main>
-      <section class="hero">
+      <section class="hero landing-only">
+        <div class="hero-copy">
         <span class="intro-pill"><span class="signal" id="health-dot"></span><span id="health-text">Checking service…</span></span>
-        <h1><span>Streams that survive</span> <span>a dropped connection.</span></h1>
-        <p>Reconnect with <code>Last-Event-ID</code> and get exactly the events you missed. Heartbeats keep idle links alive. Stored streams expire on schedule.</p>
-        <p class="honest"><strong>Tokens are simulated.</strong> Deterministic words derived from your prompt. No model is called.</p>
+        <h1>A dropped connection.<br />No missing tokens.</h1>
+        <p>Train a sample model. Watch a stream unfold. Drop the connection and pick up exactly where you left off.</p>
+        <div class="hero-actions"><a class="action-link" href="#playground">Try it here</a><a class="text-link" href="/playground">Open the playground <span aria-hidden="true">↗</span></a></div>
+        <p class="honest">A hands-on demo with simulated tokens and CPU mock training.</p>
+        </div>
+        <figure class="replay-diagram" aria-label="Replay example: the connection drops after event 42, and resumes at event 43 while generation continues.">
+          <div class="diagram-head"><span>How replay works</span><span class="diagram-badge">SSE</span></div>
+          <div class="event-track"><span>41</span><span>42</span><span class="missed">43</span><span class="missed">44</span><span class="missed">45</span><span>46</span></div>
+          <div class="diagram-break"><span>Connection drops</span><span>Generation continues</span></div>
+          <div class="resume-line"><span class="resume-dot"></span><code>Last-Event-ID: 42</code></div>
+          <div class="replayed"><span>Replay</span><strong>43</strong><strong>44</strong><strong>45</strong><span class="live-label">Then live</span></div>
+          <figcaption>The server keeps the events. Your browser catches up.</figcaption>
+        </figure>
       </section>
 
+      <section class="workspace-only workspace-intro" aria-labelledby="workspace-title">
+        <h1 id="workspace-title">Streaming playground</h1>
+        <p>Start a stream, drop the connection, and resume from the last event. Tokens and training are simulated.</p>
+        <a href="/">Back to ModelLab</a>
+      </section>
+      <div class="section-heading"><div><h2>Put the connection to the test.</h2><p>Everything below runs against the live API.</p></div><a class="landing-only text-link" href="/playground">Open full playground <span aria-hidden="true">↗</span></a></div>
       <section class="playground" id="playground" aria-label="Streaming playground">
         <div class="card controls">
           <label for="prompt">Prompt</label>
@@ -114,6 +132,11 @@
           </div>
           <ol class="log" id="log" aria-label="Connection log"></ol>
         </div>
+      </section>
+      <section class="capabilities landing-only" aria-label="What you can explore">
+        <article><h2>Replay you can verify</h2><p>Stable event IDs keep tokens in order. A final checksum confirms the complete output, even after reconnecting.</p></article>
+        <article><h2>A model, from start to finish</h2><p>Split a sample dataset, create mock checkpoints, and compare base, prompted, and tuned results on held-out rows.</p></article>
+        <article><h2>Memory beyond a session</h2><p>Datasets, models, and tenant memory persist in the database. Token streams stay replayable for five minutes after completion.</p></article>
       </section>
     </main>
 
