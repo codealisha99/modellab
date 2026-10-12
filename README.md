@@ -1,5 +1,7 @@
 # ModelLab
 
+<img src="app/static/icon.svg" width="64" height="64" alt="ModelLab checkpoint logo" />
+
 ModelLab is a developer lab for deterministic CPU mock training, scored three-tier memory, and verifiable resumable streams. It helps developers inspect a dataset → train → evaluate workflow and test what happens when a streaming connection drops.
 
 Created and maintained by [Alisha Karma](https://alishakarma.com) ([codealisha99](https://github.com/codealisha99)). Individual contributions remain recorded in Git history. For creator inquiries: [lishykarma99@gmail.com](mailto:lishykarma99@gmail.com).
@@ -11,18 +13,18 @@ Training and tokens are simulated; this is not a GPU training service. Memory us
 Python 3.13 is used by Docker; 3.12–3.14 work locally. Do not copy `node_modules`, `.venv`, or `__pycache__` — recreate them here.
 
 ```bash
-cd 05-modellab
+git clone https://github.com/codealisha99/modellab.git
+cd modellab
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 ```
 
-Runtime dependencies are in `requirements.txt`; test dependencies are in `requirements-dev.txt`.
+Runtime dependencies are in `requirements.txt`; test dependencies are in `requirements-dev.txt`. If you already have a checkout, run the environment setup from its root instead of cloning again. The `private` field in `package.json` prevents npm publication; it does not indicate GitHub repository visibility.
 
 ## Run locally (mock, no Docker)
 
 ```bash
-cd 05-modellab
 source .venv/bin/activate
 OTEL_SDK_DISABLED=true python -m app.run
 # or, with reload:
@@ -41,17 +43,32 @@ docker run --rm -p 8005:8005 modellab
 curl http://localhost:8005/health
 ```
 
-The monorepo's compose service was not changed or exercised here. The image runs as a non-root user with one Uvicorn worker, copies only `app/` and runtime requirements, and health-checks `/health` on the actual `PORT`.
+The image runs as a non-root user with one Uvicorn worker, copies only `app/` and runtime requirements, and health-checks `/health` on the actual `PORT`.
 
 ## Test
 
 ```bash
-cd 05-modellab
 source .venv/bin/activate
 pytest
+python3 scripts/build_frontend.py
+for file in app/static/*.js; do node --check "$file"; done
 ```
 
 The suite enforces a 70% coverage gate. Streaming has three layers: store-level tests on an injected clock, HTTP tests, and **live-socket** tests (a real Uvicorn server, real mid-stream disconnects). See `VERIFICATION.md`.
+
+[Verification CI](.github/workflows/verify.yml) runs the Python suite, dependency consistency, JavaScript syntax checks, and static build on pushes and pull requests to `main`. Node.js is needed for JavaScript syntax checks; the application itself runs with Python.
+
+## Architecture
+
+| Location | Responsibility |
+| --- | --- |
+| `app/api/` | HTTP contracts, request limits, validation, and security headers |
+| `app/training/` | Deterministic dataset, checkpoint, evaluation, and registry workflow |
+| `app/memory/` | Bounded tenant namespaces and ranked memory retrieval |
+| `app/streaming/` | Transient SSE generation, replay, expiry, and cancellation |
+| `app/persistence.py` | Optional database snapshots with rollback on write failure |
+| `app/frontend.py`, `app/templates/`, `app/static/` | Shared page renderer, product shell, styles, and browser controls |
+| `tests/` | API, persistence, hardening, packaging, and live-socket regression checks |
 
 
 ## API
@@ -71,7 +88,7 @@ The suite enforces a 70% coverage gate. Streaming has three layers: store-level 
 | GET | `/v1/memory/stats` | Tier counts |
 | POST | `/v1/memory/compress` | Working-memory summary |
 
-Config: `configs/lora.yaml`. Checkpoints in Compose: `/data/checkpoints`.
+`configs/lora.yaml` records sample training settings; the API accepts settings in the training request and does not automatically read that file. Checkpoints default to `/tmp/checkpoints`; set `CHECKPOINT_DIR` on the API host to change this.
 
 ## Streaming
 
@@ -167,7 +184,8 @@ Local development requires no secrets. Copy `.env.example` as a reference for sh
 - Railway API: https://api-production-b980.up.railway.app
 - API docs: https://modellab-nine.vercel.app/docs
 - GitHub: https://github.com/codealisha99/modellab
-These are recorded deployment addresses, not a claim of current availability. This audit uses local services and does not deploy.
+
+These are recorded deployment addresses, not a claim of current availability. Consult the dated audit reports for checks actually performed.
 
 GitHub `main` is connected to both Railway and Vercel. Railway builds the root Dockerfile; Vercel packages the existing static playground using `scripts/build_frontend.py`. `vercel.json` proxies `/v1/*`, `/health`, and API documentation to Railway, keeping browser requests on the same origin. Database credentials belong only in Railway, never in Vercel or GitHub.
 
@@ -199,3 +217,7 @@ Build the static output with `python3 scripts/build_frontend.py`. This regenerat
 ## Project lineage
 
 The original TuneLab training and MemOS memory requirements were consolidated into ModelLab. The implementation remains a deterministic CPU demo, as described in [PRD.md](PRD.md). Historical commit identities and third-party font licenses are preserved. See [CONTRIBUTING.md](CONTRIBUTING.md) for maintainer and validation guidance.
+
+## Ownership and licensing
+
+ModelLab keeps its product identity separate from the creator attribution above. There is no project-wide LICENSE file; this repository does not declare a project-wide open-source license. Font and dependency notices remain in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). See the [ownership and branding audit](docs/audits/ownership-branding-2026-10-12.md) for current findings and verification limits.
