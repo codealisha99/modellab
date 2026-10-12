@@ -29,6 +29,12 @@ The practical shared system includes the header, active navigation, skip link, f
 
 ## Rendering and maintenance
 
+### Logo and wordmark
+
+The ModelLab checkpoint mark uses three connected squares, reflecting the three checkpoints created by a sample training run and the ordered events in a replayable stream. It is original vector artwork, rendered in the existing brand teal `#087C75` with white checkpoints. Keep the ModelLab wordmark separate from creator attribution.
+
+`app/static/icon.svg` is the single source for the header, footer, browser favicon, and README. Use explicit dimensions to prevent layout shifts. Header and footer images have empty alternative text because adjacent text already names the product; the README image has a descriptive label. Do not duplicate the SVG geometry in templates. Keep the mark readable at favicon size and leave clear space around it.
+
 `app/frontend.py` renders the shared shell for `/`, `/playground`, `/docs`, and `/redoc`. `scripts/build_frontend.py` uses the same renderer for Vercel. The playground remains usable on both application routes.
 
 Swagger UI 5.33.1 and ReDoc 2.5.4 remain third-party documentation renderers. `docs.js` wraps Swagger summary components to preserve expansion and standalone permalinks without nested interactive elements. ReDoc reads the semantic tokens through `reference.js`. Pin versions and retest documentation interactions before upgrading: [Swagger's plugin guidance](https://swagger.io/docs/open-source-tools/swagger-ui/customization/plugin-api/) treats internal component interfaces as version-sensitive.

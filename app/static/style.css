@@ -151,6 +151,7 @@ textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px
 .site-footer { padding-block: var(--space-8); border-top: var(--border-width) solid var(--border); font-size: var(--text-sm); color: var(--text-secondary); }
 .footer-main { display: flex; justify-content: space-between; gap: var(--space-8); margin-bottom: var(--space-6); }
 .footer-product { max-width: 46ch; }
+.footer-brand { display: flex; align-items: center; gap: var(--space-3); }
 .footer-product strong { color: var(--text); font-size: var(--text-lg); }
 .footer-product p { margin-top: var(--space-2); }
 .site-footer nav { display: flex; align-items: start; flex-wrap: wrap; gap: var(--space-4); }
